@@ -1,0 +1,21 @@
+<!-- rviz中panel名称，与工作空间名称一致 -->
+<library path="map_edit">
+  <!-- 定义库中的类 -->
+
+  <class name="map_edit/MapEditPanel"
+    type="map_edit::MapEditPanel"
+    base_class_type="rviz_common::Panel">
+    <!-- 类的描述 -->
+    <description>
+      Edit the map
+    </description>
+  </class>
+
+  <class name="map_edit/MapEraserTool"
+    type="map_edit::MapEraserTool"
+    base_class_type="rviz_common::Tool">
+    <description>
+      Tool for editing
+    </description>
+  </class>
+</library>    
