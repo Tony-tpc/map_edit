@@ -314,7 +314,7 @@ namespace map_edit
 
     void MapEditPanel::saveAllFiles()
     {
-        if (!isTopicExist("/map"))
+        if (!isTopicExist("/map_edit"))
         {
             QMessageBox::warning(this, "警告", "请先发布地图");
             return;
