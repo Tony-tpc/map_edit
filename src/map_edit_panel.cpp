@@ -31,14 +31,12 @@ namespace map_edit
 
         // 当前地图显示
         current_map_label_ = new QLabel("当前地图: 未加载");
-        current_map_label_->setStyleSheet("QLabel { color: #333; font-weight: bold; padding: 5px; }");
         save_layout->addWidget(current_map_label_);
 
         // 保存按钮组
         QHBoxLayout *save_btn_layout = new QHBoxLayout();
 
         save_all_btn_ = new QPushButton("保存到本地");
-        save_all_btn_->setStyleSheet("QPushButton { background-color: #4CAF50; color: white; font-size: 12px; padding: 6px; }");
         save_btn_layout->addWidget(save_all_btn_);
 
         save_layout->addLayout(save_btn_layout);
@@ -53,7 +51,6 @@ namespace map_edit
 
         // 状态显示
         status_label_ = new QLabel("就绪 - 请先打开一个地图文件");
-        status_label_->setStyleSheet("QLabel { background-color: #f0f0f0; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }");
 
         // 文件说明
         info_label_ = new QLabel(
@@ -61,7 +58,6 @@ namespace map_edit
             "• map.yaml - 地图配置文件\n"
             "• map.pgm - 地图图像文件\n"
             "提示: 文件将保存到当前地图的同一目录");
-        info_label_->setStyleSheet("QLabel { color: #666; font-size: 11px; padding: 8px; }");
 
         // 话题存在判断
         if (isTopicExist("/map"))
@@ -77,12 +73,11 @@ namespace map_edit
         progress_dialog_->setMinimumDuration(0);
 
         // 组装主布局
-        main_layout_->addWidget(save_group_);
-        main_layout_->addWidget(new QLabel("状态:"));
-        main_layout_->addWidget(status_label_);
-        main_layout_->addWidget(info_label_);
-        main_layout_->addStretch();
-
+        main_layout_->addWidget(save_group_, 1);         // 比例 1
+        main_layout_->addWidget(new QLabel("状态:"), 0); // 固定高度，内容短
+        main_layout_->addWidget(status_label_, 1);
+        main_layout_->addWidget(info_label_, 1);
+        main_layout_->addStretch(1);
         setLayout(main_layout_);
 
         // 连接信号
@@ -96,12 +91,10 @@ namespace map_edit
 
         // 本地地图打开按钮
         open_local_btn_ = new QPushButton("选择本地地图文件");
-        open_local_btn_->setStyleSheet("QPushButton { background-color: #2196F3; color: white; font-size: 12px; padding: 6px; }");
         local_layout->addWidget(open_local_btn_);
 
         // 添加说明
-        QLabel *local_info = new QLabel("支持格式: YAML配置文件 (*.yaml, *.yml)\n或PGM图像文件 (*.pgm)");
-        local_info->setStyleSheet("QLabel { color: #666; font-size: 10px; padding: 4px; }");
+        local_info = new QLabel("支持格式: YAML配置文件 (*.yaml, *.yml)\n或PGM图像文件 (*.pgm)");
         local_layout->addWidget(local_info);
 
         local_layout->addStretch();
@@ -120,9 +113,25 @@ namespace map_edit
             return;
         }
 
-        // // 设置默认路径为ros_map_edit/maps目录
-        QString default_path = "/home/tony/ros/origin_nav2025_developing/src/bringup/map";
-
+        QString default_path = "/home";
+        // 检查是否需要保存
+        if (eraserTool && eraserTool->getCurrentMap().data.size() > 0 && !is_saved)
+        {
+            QMessageBox::StandardButton reply = QMessageBox::question(this, "保存地图", "当前地图未保存，是否保存？", QMessageBox::Yes | QMessageBox::No | QMessageBox::Cancel);
+            if (reply == QMessageBox::Yes)
+            {
+                saveAllFiles();
+                return;
+            }
+            else if (reply == QMessageBox::Cancel)
+            {
+                return;
+            }
+            else if (reply == QMessageBox::No)
+            {
+                eraserTool->reloadMap();
+            }
+        }
         // // 如果目录不存在，尝试其他可能的路径
         // QDir maps_dir(default_path);
         // if (!maps_dir.exists())
@@ -160,7 +169,6 @@ namespace map_edit
             // 更新当前地图显示
             QString display_name = QFileInfo(filename).fileName();
             current_map_label_->setText("当前地图: " + display_name);
-            current_map_label_->setStyleSheet("QLabel { color: #007700; font-weight: bold; padding: 5px; }");
         }
     }
 
@@ -314,7 +322,7 @@ namespace map_edit
 
     void MapEditPanel::saveAllFiles()
     {
-        if (!isTopicExist("/map_edit"))
+        if (eraserTool == nullptr || eraserTool->getCurrentMap().data.size() == 0)
         {
             QMessageBox::warning(this, "警告", "请先发布地图");
             return;
@@ -333,9 +341,6 @@ namespace map_edit
             }
             try
             {
-                ToolManager &toolManager = ToolManager::getInstance();
-
-                MapEraserTool *eraserTool = toolManager.getMapEraserTool();
                 if (eraserTool && eraserTool->getCurrentMap().data.size() > 0)
                 {
                     std::string filename = fileName.toStdString();
@@ -346,6 +351,7 @@ namespace map_edit
                     if (MapEditPanel::saveMapFiles(pgm_filename, eraserTool->getCurrentMap()) && MapEditPanel::saveMapYaml(yaml_filename, pgm_basename, eraserTool->getCurrentMap()))
                     {
                         QMessageBox::information(this, "消息", "成功保存文件");
+                        is_saved = true;
                     }
                     else
                     {
@@ -382,8 +388,6 @@ namespace map_edit
 
         // 准备图像数据
         std::vector<uint8_t> image_data(map.info.width * map.info.height);
-        const double occupied_thresh = 0.65;
-        const double free_thresh = 0.196;
         const bool negate = false;
 
         // 注意：需要翻转Y轴以匹配图像坐标系（Y轴向下）
@@ -435,7 +439,8 @@ namespace map_edit
         {
             return false;
         }
-
+        const double occupied_thresh = 0.65;
+        const double free_thresh = 0.196;
         yaml_out << "image: " << pgm_filename << "\n";
         yaml_out << "resolution: " << map.info.resolution << "\n";
         yaml_out << "origin: ["
@@ -443,14 +448,69 @@ namespace map_edit
                  << map.info.origin.position.y << ", "
                  << tf2::getYaw(map.info.origin.orientation) << "]\n";
         yaml_out << "negate: 0\n";
-        yaml_out << "occupied_thresh: 0.65\n";
-        yaml_out << "free_thresh: 0.196\n";
+        yaml_out << "occupied_thresh: " << occupied_thresh << "\n";
+        yaml_out << "free_thresh: " << free_thresh << "\n";
         if (!yaml_out)
         {
             return false;
         }
         yaml_out.close();
         return true;
+    }
+    void MapEditPanel::resizeEvent(QResizeEvent *event)
+    {
+        QWidget::resizeEvent(event);
+
+        int panel_width = event->size().width();
+        int panel_height = event->size().height();
+
+        int base_size = std::max(panel_width, panel_height);
+        int font_size = std::clamp(base_size / 80, 5, 18);
+        int padding_px = std::clamp(base_size / 100, 2, 10);
+
+        QFont font;
+        font.setPointSize(font_size);
+
+        current_map_label_->setFont(font);
+        status_label_->setFont(font);
+        info_label_->setFont(font);
+        save_all_btn_->setFont(font);
+        open_local_btn_->setFont(font);
+
+        QString label_style = QString(
+                                  "QLabel { color: #333; font-weight: bold; padding: %1px; }")
+                                  .arg(padding_px);
+
+        current_map_label_->setStyleSheet(label_style);
+
+        QString status_style = QString(
+                                   "QLabel { background-color: #f0f0f0; padding: %1px; border: 1px solid #ccc; border-radius: 4px; }")
+                                   .arg(padding_px);
+        status_label_->setStyleSheet(status_style);
+
+        QString info_style = QString(
+                                 "QLabel { color: #666; font-size: %1pt; padding: %2px; }")
+                                 .arg(font_size - 2)
+                                 .arg(padding_px);
+        info_label_->setStyleSheet(info_style);
+
+        QString button_style = QString(
+                                   "QPushButton { background-color: #4CAF50; color: white; font-size: %1pt; padding: %2px; }")
+                                   .arg(font_size)
+                                   .arg(padding_px);
+        save_all_btn_->setStyleSheet(button_style);
+
+        QString open_btn_style = QString(
+                                     "QPushButton { background-color: #2196F3; color: white; font-size: %1pt; padding: %2px; }")
+                                     .arg(font_size)
+                                     .arg(padding_px);
+        open_local_btn_->setStyleSheet(open_btn_style);
+
+        QString local_info_style = QString(
+                                       "QLabel { color: #666; font-size: %1pt; padding: %2px; }")
+                                       .arg(font_size - 2)
+                                       .arg(padding_px);
+        local_info->setStyleSheet(local_info_style);
     }
 
     bool MapEditPanel::isTopicExist(const std::string &topic_name)

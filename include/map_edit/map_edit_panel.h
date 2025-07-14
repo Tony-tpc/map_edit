@@ -36,7 +36,7 @@
 #include <thread>
 #include <chrono>
 #include <tf2/utils.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include "tool_manager.h"
 #include "map_eraser_tool.h"
 
@@ -72,8 +72,6 @@ namespace map_edit
         // 一键保存组
         QGroupBox *save_group_;
         QPushButton *save_all_btn_;
-        QPushButton *save_to_remote_btn_;
-        QPushButton *open_map_btn_;
         QLabel *current_map_label_;
 
         // 地图打开选择
@@ -87,18 +85,18 @@ namespace map_edit
         // 状态显示
         QLabel *status_label_;
         QLabel *info_label_;
+        QLabel *local_info;
 
         // 当前地图文件路径和状态
         QString current_map_file_;
-        QString current_password_;
-        QString current_temp_file_;
-        bool is_remote_map_;
-        QString remote_map_base_name_; // 存储远程地图的原始基础名称（不含路径和扩展名）
+        bool is_saved = false;
 
-        // SCP传输相关
-        QProcess *scp_process_;
-        bool scp_password_sent_;
-        QString scp_output_;
+        // 地图工具
+        ToolManager &toolManager = ToolManager::getInstance();
+        MapEraserTool *eraserTool = toolManager.getMapEraserTool();
+
+    protected:
+        void resizeEvent(QResizeEvent *event) override;
     };
 
 } // namespace map_edit

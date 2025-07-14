@@ -16,7 +16,7 @@ namespace map_edit
 {
 
   MapEraserTool::MapEraserTool()
-      : map_received_(false), mouse_pressed_(false), brush_size_(1.0), brush_mode_(ERASE_TO_FREE)
+      : map_received_(false), mouse_pressed_(false), brush_size_set(3), max_brush_size_(10), min_brush_size_(1), brush_mode_(ERASE_TO_FREE), visual_line_visible_(false)
   {
 
     // 注册到工具管理器
@@ -49,6 +49,7 @@ namespace map_edit
     map_sub_ = nh->create_subscription<nav_msgs::msg::OccupancyGrid>(
         "map", qos, std::bind(&MapEraserTool::mapCallback, this, std::placeholders::_1));
     map_pub_ = nh->create_publisher<nav_msgs::msg::OccupancyGrid>("map_edit", qos);
+    marker_pub_ = nh->create_publisher<visualization_msgs::msg::Marker>("visiual_marker", qos);
 
     stop_spin_ = false;
     spin_thread_ = std::thread([this]()
@@ -58,18 +59,17 @@ namespace map_edit
     executor_->spin_some();
     rate.sleep();
   } });
-
-    brush_size_property_ = new rviz_common::properties::FloatProperty("Brush Size", 5.0,
+    brush_size_property_ = new rviz_common::properties::FloatProperty("Brush Size", brush_size_set,
                                                                       "Size of the square eraser brush (NxN pixels)",
-                                                                      getPropertyContainer(), SLOT(updateProperties()), this);
-    brush_size_property_->setMin(1.0);
-    brush_size_property_->setMax(10.0);
+                                                                      getPropertyContainer(), SLOT(brush_updateProperties()), this);
+    brush_size_property_->setMin(max_brush_size_);
+    brush_size_property_->setMax(min_brush_size_);
   }
 
   void MapEraserTool::activate()
   {
     setStatus("黑白橡皮擦 - 左键画黑色(障碍物), 右键画白色(自由空间), 拖拽连续画");
-    updateProperties();
+    brush_updateProperties();
   }
 
   void MapEraserTool::deactivate()
@@ -84,11 +84,12 @@ namespace map_edit
       setStatus("等待地图数据...");
       return Render;
     }
-
+    // 左键按下
     if (event.leftDown())
     {
       mouse_pressed_ = true;
       brush_mode_ = ERASE_TO_OCCUPIED; // 左键画黑色
+
       Ogre::Vector3 intersection;
       Ogre::Plane ground_plane(Ogre::Vector3::UNIT_Z, 0.0f);
       auto projection_result = projection_finder_->getViewportPointProjectionOnXYPlane(
@@ -101,10 +102,21 @@ namespace map_edit
         point.x = intersection.x;
         point.y = intersection.y;
         point.z = 0.0;
-
-        eraseAtPoint(point);
+        // 画直线
+        if (event.modifiers & Qt::ShiftModifier && last_point_.has_value() && last_point_.value().second == ERASE_TO_OCCUPIED)
+        {
+          drawLine(last_point_.value().first, point, ERASE_TO_OCCUPIED);
+          deleteLine();
+        }
+        // 画点
+        else
+        {
+          eraseAtPoint(point, ERASE_TO_OCCUPIED);
+        }
+        last_point_ = std::make_pair(point, brush_mode_);
       }
     }
+    // 右键按下
     else if (event.rightDown())
     {
       mouse_pressed_ = true;
@@ -122,14 +134,27 @@ namespace map_edit
         point.x = intersection.x;
         point.y = intersection.y;
         point.z = 0.0;
+        // 画直线
+        if (event.modifiers & Qt::ShiftModifier && last_point_.has_value() && last_point_.value().second == ERASE_TO_FREE)
+        {
 
-        eraseAtPoint(point);
+          drawLine(last_point_.value().first, point, ERASE_TO_FREE);
+          deleteLine();
+        }
+        // 画点
+        else
+        {
+          eraseAtPoint(point, ERASE_TO_FREE);
+        }
+        last_point_ = std::make_pair(point, brush_mode_);
       }
     }
+    // 鼠标松开
     else if (event.leftUp() || event.rightUp())
     {
       mouse_pressed_ = false;
     }
+    // 鼠标移动
     else if (event.type == QEvent::MouseMove && mouse_pressed_)
     {
       Ogre::Vector3 intersection;
@@ -145,20 +170,58 @@ namespace map_edit
         point.x = intersection.x;
         point.y = intersection.y;
         point.z = 0.0;
-
-        eraseAtPoint(point);
+        last_point_ = std::make_pair(point, brush_mode_);
+        eraseAtPoint(point, brush_mode_);
       }
+    }
+    // 直线指示线，按住 shift，且有上一个点
+    else if (event.modifiers & Qt::ShiftModifier && last_point_.has_value())
+    {
+      auto projection_result = projection_finder_->getViewportPointProjectionOnXYPlane(
+          event.panel->getRenderWindow(), event.x, event.y);
+
+      if (projection_result.first)
+      {
+        const Ogre::Vector3 &intersection = projection_result.second;
+        geometry_msgs::msg::Point point;
+        point.x = intersection.x;
+        point.y = intersection.y;
+        point.z = 0.0;
+
+        visualization_msgs::msg::Marker line;
+        line.header.frame_id = "map";
+        line.header.stamp = nh->now();
+        line.ns = "single_line";
+        line.id = 0; // 每次覆盖上一个
+        line.type = visualization_msgs::msg::Marker::LINE_STRIP;
+        line.action = visualization_msgs::msg::Marker::ADD;
+
+        line.pose.orientation.w = 1.0;
+        line.scale.x = 0.1; // 线宽
+        line.color.r = 1.0;
+        line.color.g = 0.0;
+        line.color.b = 0.0;
+        line.color.a = 1.0;
+
+        // 设置线的起点和终点
+        line.points.push_back(last_point_.value().first);
+        line.points.push_back(point);
+        visual_line_visible_ = true;
+        marker_pub_->publish(line);
+      }
+    }
+    else if (!(event.modifiers & Qt::ShiftModifier) && last_point_.has_value() && visual_line_visible_)
+    {
+      deleteLine();
     }
 
     return Render;
   }
 
-  void MapEraserTool::updateProperties()
+  void MapEraserTool::brush_updateProperties()
   {
-    brush_size_ = brush_size_property_->getFloat();
-    int size = static_cast<int>(brush_size_);
-
-    QString status_msg = "黑白橡皮擦 - 笔刷: " + QString::number(size) + "x" + QString::number(size) + "像素, 左键:黑色 右键:白色";
+    brush_size_property_->setFloat(static_cast<float>(brush_size_set));
+    QString status_msg = "黑白橡皮擦 - 笔刷: " + QString::number(brush_size_set) + "x" + QString::number(brush_size_set) + "像素, 左键:黑色 右键:白色";
     setStatus(status_msg);
   }
 
@@ -168,11 +231,45 @@ namespace map_edit
     {
       current_map_ = *msg;
     }
-    std::cout<<'22222'<<std::endl;
     map_received_ = true;
     publishModifiedMap();
   }
-  void MapEraserTool::eraseAtPoint(const geometry_msgs::msg::Point &point)
+
+  void MapEraserTool::drawLine(const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2, BrushMode mode)
+  {
+    // 计算插值步数
+    double dx = p2.x - p1.x;
+    double dy = p2.y - p1.y;
+    double distance = std::hypot(dx, dy);
+
+    const double resolution = current_map_.info.resolution;
+    const double step = resolution * 0.5;
+    int steps = static_cast<int>(distance / step);
+
+    for (int i = 0; i <= steps; ++i)
+    {
+      double t = static_cast<double>(i) / steps;
+      geometry_msgs::msg::Point p;
+      p.x = p1.x + t * dx;
+      p.y = p1.y + t * dy;
+      p.z = 0.0;
+      eraseAtPoint(p, mode);
+    }
+  }
+
+  void MapEraserTool::deleteLine()
+  {
+    visualization_msgs::msg::Marker line;
+    line.header.frame_id = "map";
+    line.header.stamp = nh->now();
+    line.ns = "single_line";
+    line.id = 0;
+    line.action = visualization_msgs::msg::Marker::DELETE;
+    marker_pub_->publish(line);
+    visual_line_visible_ = false;
+  }
+
+  void MapEraserTool::eraseAtPoint(const geometry_msgs::msg::Point &point, BrushMode mode)
   {
     if (!map_received_)
       return;
@@ -182,7 +279,7 @@ namespace map_edit
     int map_y = static_cast<int>((point.y - current_map_.info.origin.position.y) / current_map_.info.resolution);
 
     // 画笔大小表示正方形的边长（像素）
-    int brush_size = static_cast<int>(brush_size_);
+    int brush_size = static_cast<int>(brush_size_set);
 
     // 确保画笔大小至少为1
     if (brush_size < 1)
@@ -192,7 +289,7 @@ namespace map_edit
 
     // Determine the value to paint
     int8_t paint_value;
-    switch (brush_mode_)
+    switch (mode)
     {
     case ERASE_TO_FREE:
       paint_value = 0; // Free space
@@ -251,19 +348,6 @@ namespace map_edit
     publishModifiedMap();
   }
 
-  void MapEraserTool::paintAtPoint(const geometry_msgs::msg::Point &point)
-  {
-    eraseAtPoint(point); // Same implementation
-  }
-
-  geometry_msgs::msg::Point MapEraserTool::screenToMap(int screen_x, int screen_y)
-  {
-    // This would need viewport transformation - simplified for now
-    geometry_msgs::msg::Point point;
-    point.x = point.y = point.z = 0.0;
-    return point;
-  }
-
   void MapEraserTool::publishModifiedMap()
   {
     current_map_.header.stamp = nh->now();
@@ -273,25 +357,60 @@ namespace map_edit
     map_pub_->publish(current_map_);
 
     // 记录发布信息 - 更新为像素单位
-    int size = static_cast<int>(brush_size_);
+    int size = brush_size_set;
     setStatus("地图已修改并发布 - 笔刷: " + QString::number(size) + "x" + QString::number(size) + "像素");
   }
 
-  void MapEraserTool::loadMap(const std::string &filename)
+  int MapEraserTool::processKeyEvent(QKeyEvent *event, rviz_common::RenderPanel *panel)
   {
-    // Implementation would load from PGM/YAML files
-    setStatus("Map loading from file not yet implemented");
+    if (event->type() == QEvent::KeyPress)
+    {
+      if (event->key() == Qt::Key_Up)
+      {
+        brush_size_set += 1;
+        brush_size_set = clamp(brush_size_set, min_brush_size_, max_brush_size_);
+        brush_updateProperties();
+        return Render;
+      }
+      else if (event->key() == Qt::Key_Down)
+      {
+        brush_size_set -= 1;
+        brush_size_set = clamp(brush_size_set, min_brush_size_, max_brush_size_);
+        brush_updateProperties();
+        return Render;
+      }
+    }
+    if (event->type() == QEvent::KeyRelease)
+    {
+      if (event->key() == Qt::Key_Shift)
+      {
+        std::cout << "Shift key released" << std::endl;
+        visualization_msgs::msg::Marker line;
+        line.header.frame_id = "map";
+        line.header.stamp = nh->now();
+        line.ns = "single_line";
+        line.id = 0;
+        line.action = visualization_msgs::msg::Marker::DELETE;
+        marker_pub_->publish(line);
+        return Render;
+      }
+    }
+    return 0; // 不渲染
   }
 
-  void MapEraserTool::saveMap(const std::string &filename)
+  int MapEraserTool::clamp(int value, int min, int max)
   {
-    // Implementation would save to PGM/YAML files
-    setStatus("Map saving to file not yet implemented");
+    return std::max(min, std::min(value, max));
   }
 
   nav_msgs::msg::OccupancyGrid MapEraserTool::getCurrentMap() const
   {
     return current_map_;
+  }
+
+  void MapEraserTool::reloadMap()
+  {
+    map_received_ = false;
   }
 
 } // end namespace map_edit

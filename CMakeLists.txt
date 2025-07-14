@@ -16,6 +16,8 @@ find_package(tf2_ros REQUIRED)
 find_package(rviz_rendering REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
+
 
 # MOC 文件（用于 QObject 继承类）
 qt5_wrap_cpp(MOC_FILES
@@ -60,6 +62,7 @@ ament_target_dependencies(${PROJECT_NAME}
   rviz_rendering
   cv_bridge
   tf2
+  visualization_msgs
 )
 
 # 安装共享库
