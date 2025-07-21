@@ -18,6 +18,7 @@
 #include <rviz_rendering/viewport_projection_finder.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <visualization_msgs/msg/marker.hpp>
+#include <deque>
 #include <thread>
 namespace map_edit
 {
@@ -36,13 +37,11 @@ namespace map_edit
     virtual int processMouseEvent(rviz_common::ViewportMouseEvent &event);
     int processKeyEvent(QKeyEvent *event, rviz_common::RenderPanel *panel);
 
-
     nav_msgs::msg::OccupancyGrid getCurrentMap() const;
     void reloadMap();
 
   private Q_SLOTS:
     void brush_updateProperties();
-
 
   private:
     bool map_received_ = false;
@@ -56,21 +55,34 @@ namespace map_edit
       ERASE_TO_OCCUPIED, // 擦除为占用空间 (黑色)
       ERASE_TO_UNKNOWN   // 擦除为未知空间 (灰色)
     };
+    enum DrawType
+    {
+      Point,
+      Line
+    };
+    struct DrawOperation
+    {
+      DrawType type;
+      geometry_msgs::msg::Point start;
+      geometry_msgs::msg::Point end;
+      BrushMode brush_mode;
+    };
     bool visual_line_visible_;
 
     void mapCallback(const std::shared_ptr<const nav_msgs::msg::OccupancyGrid> &msg);
     void eraseAtPoint(const geometry_msgs::msg::Point &point, BrushMode mode);
-    // void paintAtPoint(const geometry_msgs::msg::Point &point);
     void drawLine(const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2, BrushMode mode);
     void deleteLine();
 
     void publishModifiedMap();
     int clamp(int value, int min, int max);
+    BrushMode reverseBrushMode(BrushMode mode);
+
     rclcpp::Node::SharedPtr nh;
     rviz_common::properties::FloatProperty *brush_size_property_;
     rviz_common::properties::FloatProperty *line_width_property_;
     rviz_common::properties::ColorProperty *color_property_;
-
+    std::deque<DrawOperation> with_draw_operations_;
     std::shared_ptr<rviz_rendering::ViewportProjectionFinder> projection_finder_;
 
     std::optional<std::pair<geometry_msgs::msg::Point, BrushMode>> last_point_;

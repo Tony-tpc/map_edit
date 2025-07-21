@@ -1,3 +1,11 @@
+<!--
+ * @Author: Tonytpc ykq31415926@163.com
+ * @Date: 2025-07-09 22:24:31
+ * @LastEditors: Tonytpc ykq31415926@163.com
+ * @LastEditTime: 2025-07-21 22:54:54
+ * @FilePath: /map_edit/readme.md
+ * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+-->
 # ROS2 Map Edit Plugin
 一个用于RViz的地图编辑插件，支持地图编辑功能。
 > 本项目参考于 [ros_map_edit](https://gitee.com/reinovo/ros_map_edit) ，并做了Ros2兼容性修改。
@@ -70,6 +78,11 @@ cd ..
 
 ![alt text](<resource/1.gif>)
 
+
+**快捷键说明：**
+- ⬆️ / ⬇️：调整笔刷大小  
+- **Ctrl + Z**：撤销上一步修改  
+- **Shift + 左/右键**：画直线（起点-终点自动连接）  
 ### 地图保存
 
 1. 点击 `保存到本地` 按钮
@@ -79,8 +92,8 @@ cd ..
 
 ## ✅ TODO List
 
-- [ ] 增加撤销功能
-- [ ] 增加画直线功能
+- [-] 增加撤销功能
+- [x] 增加画直线功能
 - [ ] 逐步实现 `gimp` 相关功能
 
 

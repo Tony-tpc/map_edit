@@ -16,7 +16,7 @@ namespace map_edit
 {
 
   MapEraserTool::MapEraserTool()
-      : map_received_(false), mouse_pressed_(false), brush_size_set(3), max_brush_size_(10), min_brush_size_(1), brush_mode_(ERASE_TO_FREE), visual_line_visible_(false)
+      : map_received_(false), mouse_pressed_(false), brush_size_set(3), max_brush_size_(10), min_brush_size_(1), brush_mode_(ERASE_TO_FREE), visual_line_visible_(false), with_draw_operations_(10)
   {
 
     // 注册到工具管理器
@@ -105,12 +105,24 @@ namespace map_edit
         // 画直线
         if (event.modifiers & Qt::ShiftModifier && last_point_.has_value() && last_point_.value().second == ERASE_TO_OCCUPIED)
         {
+          DrawOperation new_operation;
+          new_operation.type = Line;
+          new_operation.start = point;
+          new_operation.end = last_point_.value().first;
+          new_operation.brush_mode = ERASE_TO_OCCUPIED;
+          with_draw_operations_.push_back(new_operation);
           drawLine(last_point_.value().first, point, ERASE_TO_OCCUPIED);
           deleteLine();
         }
         // 画点
         else
         {
+          DrawOperation new_operation;
+          new_operation.type = Point;
+          new_operation.start = point;
+          new_operation.end = geometry_msgs::msg::Point();
+          new_operation.brush_mode = ERASE_TO_OCCUPIED;
+          with_draw_operations_.push_back(new_operation);
           eraseAtPoint(point, ERASE_TO_OCCUPIED);
         }
         last_point_ = std::make_pair(point, brush_mode_);
@@ -137,13 +149,24 @@ namespace map_edit
         // 画直线
         if (event.modifiers & Qt::ShiftModifier && last_point_.has_value() && last_point_.value().second == ERASE_TO_FREE)
         {
-
+          DrawOperation new_operation;
+          new_operation.type = Line;
+          new_operation.start = point;
+          new_operation.end = last_point_.value().first;
+          new_operation.brush_mode = ERASE_TO_FREE;
+          with_draw_operations_.push_back(new_operation);
           drawLine(last_point_.value().first, point, ERASE_TO_FREE);
           deleteLine();
         }
         // 画点
         else
         {
+          DrawOperation new_operation;
+          new_operation.type = Point;
+          new_operation.start = point;
+          new_operation.end = geometry_msgs::msg::Point();
+          new_operation.brush_mode = ERASE_TO_FREE;
+          with_draw_operations_.push_back(new_operation);
           eraseAtPoint(point, ERASE_TO_FREE);
         }
         last_point_ = std::make_pair(point, brush_mode_);
@@ -171,6 +194,12 @@ namespace map_edit
         point.y = intersection.y;
         point.z = 0.0;
         last_point_ = std::make_pair(point, brush_mode_);
+        DrawOperation new_operation;
+        new_operation.type = Point;
+        new_operation.start = point;
+        new_operation.end = geometry_msgs::msg::Point();
+        new_operation.brush_mode = brush_mode_;
+        with_draw_operations_.push_back(new_operation);
         eraseAtPoint(point, brush_mode_);
       }
     }
@@ -192,18 +221,17 @@ namespace map_edit
         line.header.frame_id = "map";
         line.header.stamp = nh->now();
         line.ns = "single_line";
-        line.id = 0; // 每次覆盖上一个
+        line.id = 0;
         line.type = visualization_msgs::msg::Marker::LINE_STRIP;
         line.action = visualization_msgs::msg::Marker::ADD;
 
         line.pose.orientation.w = 1.0;
-        line.scale.x = 0.1; // 线宽
+        line.scale.x = 0.1;
         line.color.r = 1.0;
         line.color.g = 0.0;
         line.color.b = 0.0;
         line.color.a = 1.0;
 
-        // 设置线的起点和终点
         line.points.push_back(last_point_.value().first);
         line.points.push_back(point);
         visual_line_visible_ = true;
@@ -380,34 +408,54 @@ namespace map_edit
         return Render;
       }
     }
-    if (event->type() == QEvent::KeyRelease)
+    if (event->modifiers() & Qt::ControlModifier && event->key() == Qt::Key_Z)
     {
-      if (event->key() == Qt::Key_Shift)
+      if(with_draw_operations_.size() == 0) return Render;
+      DrawOperation withdraw_opt = with_draw_operations_.back();
+      with_draw_operations_.pop_back();
+      if (withdraw_opt.type == DrawType::Point)
       {
-        std::cout << "Shift key released" << std::endl;
-        visualization_msgs::msg::Marker line;
-        line.header.frame_id = "map";
-        line.header.stamp = nh->now();
-        line.ns = "single_line";
-        line.id = 0;
-        line.action = visualization_msgs::msg::Marker::DELETE;
-        marker_pub_->publish(line);
-        return Render;
+        eraseAtPoint(withdraw_opt.start, reverseBrushMode(withdraw_opt.brush_mode));
+        last_point_ = std::make_pair(withdraw_opt.start, withdraw_opt.brush_mode);
       }
+      else if (withdraw_opt.type == DrawType::Line)
+      {
+        drawLine(withdraw_opt.start,withdraw_opt.end,reverseBrushMode(withdraw_opt.brush_mode));
+        last_point_ = std::make_pair(withdraw_opt.end, withdraw_opt.brush_mode);
+
+      }
+      // 执行撤销逻辑
+      return Render;
     }
     return 0; // 不渲染
   }
-
+  // 限制于上下限
   int MapEraserTool::clamp(int value, int min, int max)
   {
     return std::max(min, std::min(value, max));
   }
 
+  // 反转画笔模式
+  MapEraserTool::BrushMode MapEraserTool::reverseBrushMode(BrushMode mode)
+  {
+    switch (mode)
+    {
+    case ERASE_TO_FREE:
+      return ERASE_TO_OCCUPIED;
+    case ERASE_TO_OCCUPIED:
+      return ERASE_TO_FREE;
+    case ERASE_TO_UNKNOWN:
+      return ERASE_TO_UNKNOWN;
+    default:
+      return ERASE_TO_UNKNOWN;
+    }
+  }
+  // 获取当前地图
   nav_msgs::msg::OccupancyGrid MapEraserTool::getCurrentMap() const
   {
     return current_map_;
   }
-
+  // 重新加载地图
   void MapEraserTool::reloadMap()
   {
     map_received_ = false;
