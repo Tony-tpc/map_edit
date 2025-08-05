@@ -2,14 +2,14 @@
  * @Author: Tonytpc ykq31415926@163.com
  * @Date: 2025-07-09 22:24:31
  * @LastEditors: Tonytpc ykq31415926@163.com
- * @LastEditTime: 2025-07-21 22:54:54
+ * @LastEditTime: 2025-08-05 12:22:05
  * @FilePath: /map_edit/readme.md
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
 -->
 # ROS2 Map Edit Plugin
 一个用于RViz的地图编辑插件，支持地图编辑功能。
 > 本项目参考于 [ros_map_edit](https://gitee.com/reinovo/ros_map_edit) ，并做了Ros2兼容性修改。
-
+> 演示视频：[map_edit地图编辑工具](https://www.bilibili.com/video/BV1XPtJzbEn8)
 
 ![alt text](resource/image-3.png)
 
@@ -76,9 +76,6 @@ cd ..
 ![alt text](resource/image.png)
 >使用橡皮擦：左键画黑色，右键画白色
 
-![alt text](<resource/1.gif>)
-
-
 **快捷键说明：**
 - ⬆️ / ⬇️：调整笔刷大小  
 - **Ctrl + Z**：撤销上一步修改  
@@ -92,7 +89,7 @@ cd ..
 
 ## ✅ TODO List
 
-- [-] 增加撤销功能
+- [x] 增加撤销功能(需优化)
 - [x] 增加画直线功能
 - [ ] 逐步实现 `gimp` 相关功能
 

@@ -68,7 +68,7 @@ namespace map_edit
       BrushMode brush_mode;
     };
     bool visual_line_visible_;
-
+    const int MAX_SIZE = 50;
     void mapCallback(const std::shared_ptr<const nav_msgs::msg::OccupancyGrid> &msg);
     void eraseAtPoint(const geometry_msgs::msg::Point &point, BrushMode mode);
     void drawLine(const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2, BrushMode mode);

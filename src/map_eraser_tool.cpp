@@ -16,7 +16,7 @@ namespace map_edit
 {
 
   MapEraserTool::MapEraserTool()
-      : map_received_(false), mouse_pressed_(false), brush_size_set(3), max_brush_size_(10), min_brush_size_(1), brush_mode_(ERASE_TO_FREE), visual_line_visible_(false), with_draw_operations_(10)
+      : map_received_(false), mouse_pressed_(false), brush_size_set(3), max_brush_size_(10), min_brush_size_(1), brush_mode_(ERASE_TO_FREE), visual_line_visible_(false), with_draw_operations_(20)
   {
 
     // 注册到工具管理器
@@ -110,6 +110,10 @@ namespace map_edit
           new_operation.start = point;
           new_operation.end = last_point_.value().first;
           new_operation.brush_mode = ERASE_TO_OCCUPIED;
+          if (with_draw_operations_.size() >= MAX_SIZE)
+          {
+            with_draw_operations_.pop_front();
+          }
           with_draw_operations_.push_back(new_operation);
           drawLine(last_point_.value().first, point, ERASE_TO_OCCUPIED);
           deleteLine();
@@ -122,6 +126,10 @@ namespace map_edit
           new_operation.start = point;
           new_operation.end = geometry_msgs::msg::Point();
           new_operation.brush_mode = ERASE_TO_OCCUPIED;
+          if (with_draw_operations_.size() >= MAX_SIZE)
+          {
+            with_draw_operations_.pop_front();
+          }
           with_draw_operations_.push_back(new_operation);
           eraseAtPoint(point, ERASE_TO_OCCUPIED);
         }
@@ -154,6 +162,10 @@ namespace map_edit
           new_operation.start = point;
           new_operation.end = last_point_.value().first;
           new_operation.brush_mode = ERASE_TO_FREE;
+          if (with_draw_operations_.size() >= MAX_SIZE)
+          {
+            with_draw_operations_.pop_front();
+          }
           with_draw_operations_.push_back(new_operation);
           drawLine(last_point_.value().first, point, ERASE_TO_FREE);
           deleteLine();
@@ -166,6 +178,10 @@ namespace map_edit
           new_operation.start = point;
           new_operation.end = geometry_msgs::msg::Point();
           new_operation.brush_mode = ERASE_TO_FREE;
+          if (with_draw_operations_.size() >= MAX_SIZE)
+          {
+            with_draw_operations_.pop_front();
+          }
           with_draw_operations_.push_back(new_operation);
           eraseAtPoint(point, ERASE_TO_FREE);
         }
@@ -199,6 +215,10 @@ namespace map_edit
         new_operation.start = point;
         new_operation.end = geometry_msgs::msg::Point();
         new_operation.brush_mode = brush_mode_;
+        if (with_draw_operations_.size() >= MAX_SIZE)
+        {
+          with_draw_operations_.pop_front();
+        }
         with_draw_operations_.push_back(new_operation);
         eraseAtPoint(point, brush_mode_);
       }
@@ -376,21 +396,22 @@ namespace map_edit
     publishModifiedMap();
   }
 
+  // 发布到编辑地图话题
   void MapEraserTool::publishModifiedMap()
   {
     current_map_.header.stamp = nh->now();
     current_map_.header.frame_id = "map";
 
-    // 发布到编辑地图话题
     map_pub_->publish(current_map_);
 
-    // 记录发布信息 - 更新为像素单位
     int size = brush_size_set;
     setStatus("地图已修改并发布 - 笔刷: " + QString::number(size) + "x" + QString::number(size) + "像素");
   }
 
+  // 键盘监听事件
   int MapEraserTool::processKeyEvent(QKeyEvent *event, rviz_common::RenderPanel *panel)
   {
+    // 调整笔画大小
     if (event->type() == QEvent::KeyPress)
     {
       if (event->key() == Qt::Key_Up)
@@ -408,9 +429,11 @@ namespace map_edit
         return Render;
       }
     }
+    // 撤销事件
     if (event->modifiers() & Qt::ControlModifier && event->key() == Qt::Key_Z)
     {
-      if(with_draw_operations_.size() == 0) return Render;
+      if (with_draw_operations_.size() == 0)
+        return Render;
       DrawOperation withdraw_opt = with_draw_operations_.back();
       with_draw_operations_.pop_back();
       if (withdraw_opt.type == DrawType::Point)
@@ -420,14 +443,12 @@ namespace map_edit
       }
       else if (withdraw_opt.type == DrawType::Line)
       {
-        drawLine(withdraw_opt.start,withdraw_opt.end,reverseBrushMode(withdraw_opt.brush_mode));
+        drawLine(withdraw_opt.start, withdraw_opt.end, reverseBrushMode(withdraw_opt.brush_mode));
         last_point_ = std::make_pair(withdraw_opt.end, withdraw_opt.brush_mode);
-
       }
-      // 执行撤销逻辑
       return Render;
     }
-    return 0; // 不渲染
+    return 0;
   }
   // 限制于上下限
   int MapEraserTool::clamp(int value, int min, int max)
