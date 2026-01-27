@@ -4,7 +4,7 @@ install/
 .vscode/
 log/
 rosbag*
-
+.trae/
 .cache/
 __pycache__/
 .catkin_workspace

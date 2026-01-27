@@ -894,11 +894,11 @@ namespace map_edit
                                    .arg(padding_px);
         save_all_btn_->setStyleSheet(button_style);
 
-        QString save_json_button_style = QString(
+        QString save_yaml_button_style = QString(
                                              "QPushButton { background-color:rgb(173, 175, 76); color: white; font-size: %1pt; padding: %2px; }")
                                              .arg(font_size)
                                              .arg(padding_px);
-        save_json_btn_->setStyleSheet(save_json_button_style);
+        save_yaml_btn_->setStyleSheet(save_yaml_button_style);
 
         QString open_btn_style = QString(
                                      "QPushButton { background-color: #2196F3; color: white; font-size: %1pt; padding: %2px; }")
@@ -910,7 +910,7 @@ namespace map_edit
                                                "QPushButton { background-color:rgb(120, 175, 76); color: white; font-size: %1pt; padding: %2px; }")
                                                .arg(font_size)
                                                .arg(padding_px);
-        open_region_json_btn_->setStyleSheet(open_region_button_style);
+        open_region_yaml_btn_->setStyleSheet(open_region_button_style);
 
         QString clear_region_btn_style = QString(
                                              "QPushButton { background-color:rgb(206, 83, 53); color: white; font-size: %1pt; padding: %2px; }")

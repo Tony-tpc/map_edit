@@ -70,12 +70,21 @@ namespace map_edit
       Point,
       Line
     };
-    struct DrawOperation
+    struct PixelBackup
     {
-      DrawType type;
-      geometry_msgs::msg::Point start;
-      geometry_msgs::msg::Point end;
+      int index;
+      int8_t original_value;
+      int8_t new_value;
+    };
+
+    struct OperationRecord
+    {
+      std::string element_id;
+      double timestamp;
+      std::string operation_type;
       BrushMode brush_mode;
+      int brush_size;
+      std::vector<PixelBackup> changed_pixels;
     };
     bool visual_line_visible_;
     const int MAX_SIZE = 50;
@@ -84,15 +93,24 @@ namespace map_edit
     void drawLine(const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2, BrushMode mode);
     void deleteLine();
 
+    void undo();
+    void redo();
+
     void publishModifiedMap();
     int clamp(int value, int min, int max);
-    BrushMode reverseBrushMode(BrushMode mode);
 
     rclcpp::Node::SharedPtr nh;
     rviz_common::properties::FloatProperty *brush_size_property_;
     rviz_common::properties::FloatProperty *line_width_property_;
     rviz_common::properties::ColorProperty *color_property_;
-    std::deque<DrawOperation> with_draw_operations_;
+    
+    std::deque<OperationRecord> undo_stack_;
+    std::deque<OperationRecord> redo_stack_;
+    
+    // Temporary storage for current stroke
+    std::vector<PixelBackup> current_stroke_changes_;
+    std::vector<int> current_stroke_indices_; // To track modified indices in current stroke for uniqueness check (simplistic)
+
     std::shared_ptr<rviz_rendering::ViewportProjectionFinder> projection_finder_;
 
     std::optional<std::pair<geometry_msgs::msg::Point, BrushMode>> last_point_;

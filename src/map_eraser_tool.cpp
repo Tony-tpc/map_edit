@@ -1,12 +1,13 @@
 #include "map_edit/map_eraser_tool.h"
 #include "map_edit/tool_manager.h"
-
+#include <algorithm>
+#include <chrono>
 
 namespace map_edit
 {
 
   MapEraserTool::MapEraserTool()
-      : map_received_(false), mouse_pressed_(false), brush_size_set(3), max_brush_size_(10), min_brush_size_(1), brush_mode_(ERASE_TO_FREE), visual_line_visible_(false), with_draw_operations_(20)
+      : map_received_(false), mouse_pressed_(false), brush_size_set(3), max_brush_size_(10), min_brush_size_(1), brush_mode_(ERASE_TO_FREE), visual_line_visible_(false)
   {
 
     // 注册到工具管理器
@@ -44,11 +45,11 @@ namespace map_edit
     stop_spin_ = false;
     spin_thread_ = std::thread([this]()
                                {
-  rclcpp::WallRate rate(30);
-  while (!stop_spin_) {
-    executor_->spin_some();
-    rate.sleep();
-  } });
+    rclcpp::WallRate rate(30);
+    while (!stop_spin_) {
+      executor_->spin_some();
+      rate.sleep();
+    } });
     brush_size_property_ = new rviz_common::properties::FloatProperty("Brush Size", brush_size_set,
                                                                       "Size of the square eraser brush (NxN pixels)",
                                                                       getPropertyContainer(), SLOT(brush_updateProperties()), this);
@@ -65,6 +66,8 @@ namespace map_edit
   void MapEraserTool::deactivate()
   {
     mouse_pressed_ = false;
+    current_stroke_changes_.clear();
+    current_stroke_indices_.clear();
   }
 
   int MapEraserTool::processMouseEvent(rviz_common::ViewportMouseEvent &event)
@@ -79,6 +82,11 @@ namespace map_edit
     {
       mouse_pressed_ = true;
       brush_mode_ = ERASE_TO_OCCUPIED; // 左键画黑色
+
+      // Start new stroke: clear redo stack and temp buffers
+      redo_stack_.clear();
+      current_stroke_changes_.clear();
+      current_stroke_indices_.clear();
 
       Ogre::Vector3 intersection;
       Ogre::Plane ground_plane(Ogre::Vector3::UNIT_Z, 0.0f);
@@ -95,32 +103,29 @@ namespace map_edit
         // 画直线
         if (event.modifiers & Qt::ShiftModifier && last_point_.has_value() && last_point_.value().second == ERASE_TO_OCCUPIED)
         {
-          DrawOperation new_operation;
-          new_operation.type = Line;
-          new_operation.start = point;
-          new_operation.end = last_point_.value().first;
-          new_operation.brush_mode = ERASE_TO_OCCUPIED;
-          if (with_draw_operations_.size() >= MAX_SIZE)
-          {
-            with_draw_operations_.pop_front();
-          }
-          with_draw_operations_.push_back(new_operation);
           drawLine(last_point_.value().first, point, ERASE_TO_OCCUPIED);
           deleteLine();
+          
+          // Commit stroke immediately for line
+          if (!current_stroke_changes_.empty()) {
+              OperationRecord record;
+              record.element_id = std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+              record.timestamp = nh->now().seconds();
+              record.operation_type = "LINE";
+              record.brush_mode = ERASE_TO_OCCUPIED;
+              record.brush_size = brush_size_set;
+              record.changed_pixels = current_stroke_changes_;
+              
+              if (undo_stack_.size() >= MAX_SIZE) undo_stack_.pop_front();
+              undo_stack_.push_back(record);
+              
+              current_stroke_changes_.clear();
+              current_stroke_indices_.clear();
+          }
         }
-        // 画点
+        // 画点 (Start of drag)
         else
         {
-          DrawOperation new_operation;
-          new_operation.type = Point;
-          new_operation.start = point;
-          new_operation.end = geometry_msgs::msg::Point();
-          new_operation.brush_mode = ERASE_TO_OCCUPIED;
-          if (with_draw_operations_.size() >= MAX_SIZE)
-          {
-            with_draw_operations_.pop_front();
-          }
-          with_draw_operations_.push_back(new_operation);
           eraseAtPoint(point, ERASE_TO_OCCUPIED);
         }
         last_point_ = std::make_pair(point, brush_mode_);
@@ -131,6 +136,12 @@ namespace map_edit
     {
       mouse_pressed_ = true;
       brush_mode_ = ERASE_TO_FREE; // 右键画白色
+      
+      // Start new stroke
+      redo_stack_.clear();
+      current_stroke_changes_.clear();
+      current_stroke_indices_.clear();
+      
       Ogre::Vector3 intersection;
       Ogre::Plane ground_plane(Ogre::Vector3::UNIT_Z, 0.0f);
 
@@ -147,32 +158,29 @@ namespace map_edit
         // 画直线
         if (event.modifiers & Qt::ShiftModifier && last_point_.has_value() && last_point_.value().second == ERASE_TO_FREE)
         {
-          DrawOperation new_operation;
-          new_operation.type = Line;
-          new_operation.start = point;
-          new_operation.end = last_point_.value().first;
-          new_operation.brush_mode = ERASE_TO_FREE;
-          if (with_draw_operations_.size() >= MAX_SIZE)
-          {
-            with_draw_operations_.pop_front();
-          }
-          with_draw_operations_.push_back(new_operation);
           drawLine(last_point_.value().first, point, ERASE_TO_FREE);
           deleteLine();
+          
+          // Commit stroke immediately for line
+          if (!current_stroke_changes_.empty()) {
+              OperationRecord record;
+              record.element_id = std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+              record.timestamp = nh->now().seconds();
+              record.operation_type = "LINE";
+              record.brush_mode = ERASE_TO_FREE;
+              record.brush_size = brush_size_set;
+              record.changed_pixels = current_stroke_changes_;
+              
+              if (undo_stack_.size() >= MAX_SIZE) undo_stack_.pop_front();
+              undo_stack_.push_back(record);
+              
+              current_stroke_changes_.clear();
+              current_stroke_indices_.clear();
+          }
         }
-        // 画点
+        // 画点 (Start of drag)
         else
         {
-          DrawOperation new_operation;
-          new_operation.type = Point;
-          new_operation.start = point;
-          new_operation.end = geometry_msgs::msg::Point();
-          new_operation.brush_mode = ERASE_TO_FREE;
-          if (with_draw_operations_.size() >= MAX_SIZE)
-          {
-            with_draw_operations_.pop_front();
-          }
-          with_draw_operations_.push_back(new_operation);
           eraseAtPoint(point, ERASE_TO_FREE);
         }
         last_point_ = std::make_pair(point, brush_mode_);
@@ -182,6 +190,23 @@ namespace map_edit
     else if (event.leftUp() || event.rightUp())
     {
       mouse_pressed_ = false;
+      
+      // Commit the stroke
+      if (!current_stroke_changes_.empty()) {
+          OperationRecord record;
+          record.element_id = std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+          record.timestamp = nh->now().seconds();
+          record.operation_type = "STROKE";
+          record.brush_mode = brush_mode_;
+          record.brush_size = brush_size_set;
+          record.changed_pixels = current_stroke_changes_;
+          
+          if (undo_stack_.size() >= MAX_SIZE) undo_stack_.pop_front();
+          undo_stack_.push_back(record);
+          
+          current_stroke_changes_.clear();
+          current_stroke_indices_.clear();
+      }
     }
     // 鼠标移动
     else if (event.type == QEvent::MouseMove && mouse_pressed_)
@@ -200,20 +225,11 @@ namespace map_edit
         point.y = intersection.y;
         point.z = 0.0;
         last_point_ = std::make_pair(point, brush_mode_);
-        DrawOperation new_operation;
-        new_operation.type = Point;
-        new_operation.start = point;
-        new_operation.end = geometry_msgs::msg::Point();
-        new_operation.brush_mode = brush_mode_;
-        if (with_draw_operations_.size() >= MAX_SIZE)
-        {
-          with_draw_operations_.pop_front();
-        }
-        with_draw_operations_.push_back(new_operation);
+        
         eraseAtPoint(point, brush_mode_);
       }
     }
-    // 直线指示线，按住 shift，且有上一个点
+    // 直线指示线
     else if (event.modifiers & Qt::ShiftModifier && last_point_.has_value())
     {
       auto projection_result = projection_finder_->getViewportPointProjectionOnXYPlane(
@@ -275,7 +291,6 @@ namespace map_edit
 
   void MapEraserTool::drawLine(const geometry_msgs::msg::Point &p1, const geometry_msgs::msg::Point &p2, BrushMode mode)
   {
-    // 计算插值步数
     double dx = p2.x - p1.x;
     double dy = p2.y - p1.y;
     double distance = std::hypot(dx, dy);
@@ -312,57 +327,44 @@ namespace map_edit
     if (!map_received_)
       return;
 
-    // Convert world coordinates to map coordinates
     int map_x = static_cast<int>((point.x - current_map_.info.origin.position.x) / current_map_.info.resolution);
     int map_y = static_cast<int>((point.y - current_map_.info.origin.position.y) / current_map_.info.resolution);
 
-    // 画笔大小表示正方形的边长（像素）
     int brush_size = static_cast<int>(brush_size_set);
+    if (brush_size < 1) brush_size = 1;
 
-    // 确保画笔大小至少为1
-    if (brush_size < 1)
-    {
-      brush_size = 1;
-    }
-
-    // Determine the value to paint
     int8_t paint_value;
     switch (mode)
     {
     case ERASE_TO_FREE:
-      paint_value = 0; // Free space
+      paint_value = 0;
       break;
     case ERASE_TO_OCCUPIED:
-      paint_value = 100; // Occupied space
+      paint_value = 100;
       break;
     case ERASE_TO_UNKNOWN:
     default:
-      paint_value = -1; // Unknown space
+      paint_value = -1;
       break;
     }
 
-    // 计算正方形画笔的范围
-    // 对于奇数大小：以点击位置为中心
-    // 对于偶数大小：向左上角偏移
     int half_size = brush_size / 2;
     int start_x = map_x - half_size;
     int start_y = map_y - half_size;
 
-    // 如果是奇数大小，保持中心对齐
     if (brush_size % 2 == 1)
     {
-      // 奇数：中心对齐，例如3x3时从(x-1,y-1)到(x+1,y+1)
       start_x = map_x - half_size;
       start_y = map_y - half_size;
     }
     else
     {
-      // 偶数：向左上角偏移，例如2x2时从(x,y)到(x+1,y+1)
       start_x = map_x;
       start_y = map_y;
     }
 
-    // Apply square brush
+    bool modified = false;
+
     for (int dy = 0; dy < brush_size; ++dy)
     {
       for (int dx = 0; dx < brush_size; ++dx)
@@ -370,23 +372,63 @@ namespace map_edit
         int target_x = start_x + dx;
         int target_y = start_y + dy;
 
-        // Check bounds
         if (target_x >= 0 && target_x < static_cast<int>(current_map_.info.width) &&
             target_y >= 0 && target_y < static_cast<int>(current_map_.info.height))
         {
           int index = target_y * current_map_.info.width + target_x;
           if (index >= 0 && index < static_cast<int>(current_map_.data.size()))
           {
-            current_map_.data[index] = paint_value;
+            // Check if already in current stroke to avoid duplicate backups
+            // Optimization: We could use a set, but for small brushes vector linear scan is ok.
+            // If the stroke is long, current_stroke_indices_ grows.
+            // But we only scan current_stroke_indices_? No, that's slow if stroke is long.
+            // We should scan ONLY the indices we are about to touch?
+            // Actually, we can check if current_map_.data[index] == paint_value. 
+            // If it's already the target value, we might still need to back it up IF we haven't visited it yet 
+            // (e.g. painting black on black - maybe not needed, but for consistency yes).
+            // BUT, if we already visited it in this stroke, we definitely don't need to backup again.
+            
+            // Performance fix: Use a more efficient check?
+            // For now, let's trust linear scan on vector<int> is okay for reasonable stroke lengths.
+            // If it gets slow, we swap to set.
+            bool already_visited = false;
+            if (current_stroke_indices_.size() > 1000) {
+                 // Fallback or accept slowness?
+                 // Or just check the last few?
+                 // Let's iterate.
+            }
+            
+            auto it = std::find(current_stroke_indices_.begin(), current_stroke_indices_.end(), index);
+            if (it != current_stroke_indices_.end()) {
+                already_visited = true;
+            }
+
+            if (!already_visited) {
+                PixelBackup backup;
+                backup.index = index;
+                backup.original_value = current_map_.data[index];
+                backup.new_value = paint_value;
+                
+                current_stroke_changes_.push_back(backup);
+                current_stroke_indices_.push_back(index);
+                
+                // Apply change
+                current_map_.data[index] = paint_value;
+                modified = true;
+            } else {
+                // Already visited in this stroke. Just ensure value is correct (redundant but safe)
+                current_map_.data[index] = paint_value;
+            }
           }
         }
       }
     }
 
-    publishModifiedMap();
+    if (modified) {
+        publishModifiedMap();
+    }
   }
 
-  // 发布到编辑地图话题
   void MapEraserTool::publishModifiedMap()
   {
     current_map_.header.stamp = nh->now();
@@ -398,10 +440,8 @@ namespace map_edit
     setStatus("地图已修改并发布 - 笔刷: " + QString::number(size) + "x" + QString::number(size) + "像素");
   }
 
-  // 键盘监听事件
   int MapEraserTool::processKeyEvent(QKeyEvent *event, rviz_common::RenderPanel *panel)
   {
-    // 调整笔画大小
     if (event->type() == QEvent::KeyPress)
     {
       if (event->key() == Qt::Key_Up)
@@ -419,60 +459,94 @@ namespace map_edit
         return Render;
       }
     }
-    // 撤销事件
+    
+    // Undo: Ctrl + Z
     if (event->modifiers() & Qt::ControlModifier && event->key() == Qt::Key_Z)
     {
-      if (with_draw_operations_.size() == 0)
+        // Check for Redo (Ctrl + Shift + Z or Ctrl + Y depending on OS convention, usually Ctrl+Y on Windows/Linux)
+        // Qt handles modifiers separately.
+        // Let's support Ctrl+Y for Redo.
+        // Wait, standard is often Ctrl+Shift+Z too.
+        // But here let's check Z first.
+        // If Shift is ALSO pressed, it's Redo?
+        if (event->modifiers() & Qt::ShiftModifier) {
+            redo();
+        } else {
+            undo();
+        }
         return Render;
-      DrawOperation withdraw_opt = with_draw_operations_.back();
-      with_draw_operations_.pop_back();
-      if (withdraw_opt.type == DrawType::Point)
-      {
-        eraseAtPoint(withdraw_opt.start, reverseBrushMode(withdraw_opt.brush_mode));
-        last_point_ = std::make_pair(withdraw_opt.start, withdraw_opt.brush_mode);
-      }
-      else if (withdraw_opt.type == DrawType::Line)
-      {
-        drawLine(withdraw_opt.start, withdraw_opt.end, reverseBrushMode(withdraw_opt.brush_mode));
-        last_point_ = std::make_pair(withdraw_opt.end, withdraw_opt.brush_mode);
-      }
-      return Render;
     }
+    // Redo: Ctrl + Y
+    if (event->modifiers() & Qt::ControlModifier && event->key() == Qt::Key_Y)
+    {
+        redo();
+        return Render;
+    }
+    
     return 0;
   }
-  // 限制于上下限
+
+  void MapEraserTool::undo()
+  {
+      if (undo_stack_.empty()) {
+          setStatus("没有可撤销的操作");
+          return;
+      }
+
+      OperationRecord record = undo_stack_.back();
+      undo_stack_.pop_back();
+
+      // Restore pixels
+      // We iterate in reverse order of changes? Order doesn't matter if indices are unique.
+      for (const auto& pixel : record.changed_pixels) {
+          if (pixel.index >= 0 && pixel.index < static_cast<int>(current_map_.data.size())) {
+              current_map_.data[pixel.index] = pixel.original_value;
+          }
+      }
+
+      redo_stack_.push_back(record);
+      publishModifiedMap();
+      setStatus("已撤销操作");
+  }
+
+  void MapEraserTool::redo()
+  {
+      if (redo_stack_.empty()) {
+          setStatus("没有可重做的操作");
+          return;
+      }
+
+      OperationRecord record = redo_stack_.back();
+      redo_stack_.pop_back();
+
+      // Re-apply pixels
+      for (const auto& pixel : record.changed_pixels) {
+          if (pixel.index >= 0 && pixel.index < static_cast<int>(current_map_.data.size())) {
+              current_map_.data[pixel.index] = pixel.new_value;
+          }
+      }
+
+      undo_stack_.push_back(record);
+      publishModifiedMap();
+      setStatus("已重做操作");
+  }
+
   int MapEraserTool::clamp(int value, int min, int max)
   {
     return std::max(min, std::min(value, max));
   }
 
-  // 反转画笔模式
-  MapEraserTool::BrushMode MapEraserTool::reverseBrushMode(BrushMode mode)
-  {
-    switch (mode)
-    {
-    case ERASE_TO_FREE:
-      return ERASE_TO_OCCUPIED;
-    case ERASE_TO_OCCUPIED:
-      return ERASE_TO_FREE;
-    case ERASE_TO_UNKNOWN:
-      return ERASE_TO_UNKNOWN;
-    default:
-      return ERASE_TO_UNKNOWN;
-    }
-  }
-  // 获取当前地图
   nav_msgs::msg::OccupancyGrid MapEraserTool::getCurrentMap() const
   {
     return current_map_;
   }
-  // 重新加载地图
+
   void MapEraserTool::reloadMap()
   {
     map_received_ = false;
   }
 
 } // end namespace map_edit
-#include <pluginlib/class_list_macros.hpp> // NOLINT
 
+#include <pluginlib/class_list_macros.hpp>
 PLUGINLIB_EXPORT_CLASS(map_edit::MapEraserTool, rviz_common::Tool)
