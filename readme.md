@@ -37,7 +37,7 @@ cd ..
     ```zsh
     rosdepc install -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y
     ```
-
+    [安装jsoncpp](https://my.oschina.net/emacs_8782647/blog/17251913)
 2. 编译
 
     ```zsh

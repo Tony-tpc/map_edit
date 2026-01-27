@@ -18,6 +18,16 @@
 #include <rviz_rendering/viewport_projection_finder.hpp>
 #include <rclcpp/executors/single_threaded_executor.hpp>
 #include <visualization_msgs/msg/marker.hpp>
+#include <rviz_common/view_manager.hpp>
+#include <rviz_rendering/render_window.hpp>
+#include <rviz_rendering/geometry.hpp>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <cv_bridge/cv_bridge.h>
+#include <rviz_common/render_panel.hpp>
+#include <opencv2/opencv.hpp>
+#include <OgrePlane.h>
+#include <OgreVector3.h>
+#include <cmath>
 #include <deque>
 #include <thread>
 namespace map_edit

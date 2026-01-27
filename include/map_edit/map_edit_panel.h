@@ -13,6 +13,7 @@
 #include <QLineEdit>
 #include <QLabel>
 #include <QHBoxLayout>
+#include <QScrollArea>
 #include <QGridLayout>
 #include <QFileDialog>
 #include <QComboBox>
@@ -23,6 +24,8 @@
 #include <QTabWidget>
 #include <QProgressBar>
 #include <QListWidget>
+#include <QTableWidget>
+#include <QHeaderView>
 #include <QCheckBox>
 #include <QInputDialog>
 #include <QProcess>
@@ -31,15 +34,19 @@
 #include "nav_msgs/msg/map_meta_data.hpp"
 #include <tf2/LinearMath/Quaternion.h>
 #include <QImage>
+#include <QFormLayout>
+#include <QSpinBox>
+#include <QTextEdit>
 #include <yaml-cpp/yaml.h>
 #include <QFileInfo>
 #include <thread>
 #include <chrono>
 #include <tf2/utils.h>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+#include <fstream>
 #include "tool_manager.h"
 #include "map_eraser_tool.h"
-
+#include "region_tool.h"
 namespace map_edit
 {
 
@@ -50,14 +57,25 @@ namespace map_edit
         explicit MapEditPanel(QWidget *parent = nullptr);
         virtual ~MapEditPanel();
         void onInitialize() override;
+        void connectTool(RegionTool *tool);
+
+    public Q_SLOTS:
+        void onRegionToolInitialized();
+        void onRegiontoolDeInitialized();
+        void onregionsChanged();
 
     private Q_SLOTS:
         void openMap();
+        void openRegionYaml();
+        void clearRegions();
         void saveAllFiles();
+        void saveRegionYaml();
 
     private:
         void setupUI();
         void setupLocalTab();
+        void setupRegionUI();
+        void refreshRegionListUI();
         bool isTopicExist(const std::string &topic_name);
         void loadAndPublishMap(const std::string &filename);
         void publishMap(const nav_msgs::msg::OccupancyGrid &map);
@@ -72,6 +90,8 @@ namespace map_edit
         // 一键保存组
         QGroupBox *save_group_;
         QPushButton *save_all_btn_;
+        QPushButton *save_yaml_btn_;
+
         QLabel *current_map_label_;
 
         // 地图打开选择
@@ -82,6 +102,14 @@ namespace map_edit
         QWidget *local_tab_;
         QPushButton *open_local_btn_;
 
+        // 区域管理组
+        QGroupBox *region_group;
+        QPushButton *open_region_yaml_btn_{nullptr};
+        QPushButton *clear_region_btn_{nullptr};
+        QScrollArea *region_scroll_area_;
+        QWidget *region_container_;
+        QVBoxLayout *region_list_layout_;
+
         // 状态显示
         QLabel *status_label_;
         QLabel *info_label_;
@@ -89,11 +117,15 @@ namespace map_edit
 
         // 当前地图文件路径和状态
         QString current_map_file_;
+        QString last_opened_path_;
         bool is_saved = false;
 
         // 地图工具
         ToolManager &toolManager = ToolManager::getInstance();
         MapEraserTool *eraserTool = toolManager.getMapEraserTool();
+
+        // Region
+        std::vector<Region> regions_;
 
     protected:
         void resizeEvent(QResizeEvent *event) override;

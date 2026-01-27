@@ -2,7 +2,7 @@
 #define TOOL_MANAGER_H
 
 #include "map_eraser_tool.h"
-
+#include "region_tool.h"
 namespace map_edit
 {
 
@@ -15,13 +15,18 @@ namespace map_edit
 
         MapEraserTool *getMapEraserTool() const;
 
+        void registerRegionTool(RegionTool *tool);
+
+        RegionTool *getRegionTool() const;
+
     private:
-        ToolManager() : map_eraser_tool_(nullptr) {}
+        ToolManager() : map_eraser_tool_(nullptr), region_tool_(nullptr) {}
         virtual ~ToolManager() = default;
         ToolManager(const ToolManager &) = delete;
         ToolManager &operator=(const ToolManager &) = delete;
 
         MapEraserTool *map_eraser_tool_;
+        RegionTool *region_tool_;
     };
 
 } // end namespace map_edit

@@ -1,16 +1,6 @@
 #include "map_edit/map_eraser_tool.h"
 #include "map_edit/tool_manager.h"
-#include <rviz_common/view_manager.hpp>
-#include <rviz_rendering/geometry.hpp>
-#include <rviz_rendering/render_window.hpp>
-#include <rviz_rendering/geometry.hpp>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
-#include <cv_bridge/cv_bridge.h>
-#include <rviz_common/render_panel.hpp>
-#include <opencv2/opencv.hpp>
-#include <OgrePlane.h>
-#include <OgreVector3.h>
-#include <cmath>
+
 
 namespace map_edit
 {
@@ -49,7 +39,7 @@ namespace map_edit
     map_sub_ = nh->create_subscription<nav_msgs::msg::OccupancyGrid>(
         "map", qos, std::bind(&MapEraserTool::mapCallback, this, std::placeholders::_1));
     map_pub_ = nh->create_publisher<nav_msgs::msg::OccupancyGrid>("map_edit", qos);
-    marker_pub_ = nh->create_publisher<visualization_msgs::msg::Marker>("visiual_marker", qos);
+    marker_pub_ = nh->create_publisher<visualization_msgs::msg::Marker>("marker", qos);
 
     stop_spin_ = false;
     spin_thread_ = std::thread([this]()

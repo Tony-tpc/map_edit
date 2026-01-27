@@ -18,4 +18,12 @@
       Tool for editing
     </description>
   </class>
+
+  <class name="map_edit/RegionTool"
+  type="map_edit::RegionTool"
+  base_class_type="rviz_common::Tool">
+  <description>
+    Tool for set region
+  </description>
+</class>
 </library>    

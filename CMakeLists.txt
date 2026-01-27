@@ -17,13 +17,15 @@ find_package(rviz_rendering REQUIRED)
 find_package(cv_bridge REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
-
+find_package(geometry_msgs REQUIRED)
+find_package(yaml-cpp REQUIRED)
 
 # MOC 文件（用于 QObject 继承类）
 qt5_wrap_cpp(MOC_FILES
   include/map_edit/map_edit_panel.h
   include/map_edit/map_eraser_tool.h
   include/map_edit/tool_manager.h
+  include/map_edit/region_tool.h
 
 )
 
@@ -32,6 +34,7 @@ set(SRC_FILES
   src/map_edit_panel.cpp
   src/tool_manager.cpp
   src/map_eraser_tool.cpp
+  src/region_tool.cpp
 )
 
 # 头文件包含路径
@@ -51,6 +54,7 @@ target_link_libraries(${PROJECT_NAME}
   Qt5::Quick
   Qt5::Qml
   Qt5::QuickWidgets
+  yaml-cpp
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -63,6 +67,7 @@ ament_target_dependencies(${PROJECT_NAME}
   cv_bridge
   tf2
   visualization_msgs
+  geometry_msgs
 )
 
 # 安装共享库

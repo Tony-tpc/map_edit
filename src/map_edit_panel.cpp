@@ -1,6 +1,7 @@
 #include "map_edit/map_edit_panel.h"
 #include <pluginlib/class_list_macros.hpp>
 
+extern map_edit::RegionTool *g_region_tool;
 namespace map_edit
 {
 
@@ -8,7 +9,12 @@ namespace map_edit
     MapEditPanel::MapEditPanel(QWidget *parent)
         : rviz_common::Panel(parent)
     {
+        last_opened_path_ = QDir::currentPath();
         MapEditNode = std::make_shared<rclcpp::Node>("mapedit");
+        if (g_region_tool)
+        {
+            connectTool(g_region_tool);
+        }
         setupUI();
     }
 
@@ -34,17 +40,20 @@ namespace map_edit
         save_layout->addWidget(current_map_label_);
 
         // 保存按钮组
-        QHBoxLayout *save_btn_layout = new QHBoxLayout();
+        QVBoxLayout *save_btn_layout = new QVBoxLayout();
 
         save_all_btn_ = new QPushButton("保存到本地");
         save_btn_layout->addWidget(save_all_btn_);
+
+        save_yaml_btn_ = new QPushButton("保存到yaml文件");
+        save_btn_layout->addWidget(save_yaml_btn_);
 
         save_layout->addLayout(save_btn_layout);
 
         // 创建选项卡控件用于选择地图来源
         map_source_tabs_ = new QTabWidget();
+        setupRegionUI();
         setupLocalTab();
-
         save_layout->addWidget(map_source_tabs_);
 
         save_group_->setLayout(save_layout);
@@ -82,8 +91,41 @@ namespace map_edit
 
         // 连接信号
         connect(save_all_btn_, SIGNAL(clicked()), this, SLOT(saveAllFiles()));
+        connect(save_yaml_btn_, SIGNAL(clicked()), this, SLOT(saveRegionYaml()));
     }
 
+    void MapEditPanel::setupRegionUI()
+    {
+        // 区域管理组
+        region_group = new QGroupBox("区域管理");
+        QVBoxLayout *region_layout_ = new QVBoxLayout();
+        QVBoxLayout *btn_layout = new QVBoxLayout();
+
+        open_region_yaml_btn_ = new QPushButton("打开区域 YAML 文件");
+        clear_region_btn_ = new QPushButton("清空区域");
+
+        btn_layout->addWidget(open_region_yaml_btn_, 2);
+        btn_layout->addWidget(clear_region_btn_, 2);
+        region_layout_->addLayout(btn_layout);
+        // 滚动区域，用于显示多个区域卡片
+        region_scroll_area_ = new QScrollArea();
+        region_scroll_area_->setWidgetResizable(true);
+        region_scroll_area_->setFrameShape(QFrame::NoFrame);
+
+        region_container_ = new QWidget();
+        region_list_layout_ = new QVBoxLayout(region_container_);
+        region_list_layout_->setSpacing(8);
+        region_list_layout_->setAlignment(Qt::AlignTop);
+
+        region_scroll_area_->setWidget(region_container_);
+        region_layout_->addWidget(region_scroll_area_, 1);
+
+        region_group->setLayout(region_layout_);
+        main_layout_->addWidget(region_group, 3);
+        region_group->setVisible(false);
+        connect(open_region_yaml_btn_, SIGNAL(clicked()), this, SLOT(openRegionYaml()));
+        connect(clear_region_btn_, SIGNAL(clicked()), this, SLOT(clearRegions()));
+    }
     void MapEditPanel::setupLocalTab()
     {
         local_tab_ = new QWidget();
@@ -104,6 +146,32 @@ namespace map_edit
         // 连接信号
         connect(open_local_btn_, SIGNAL(clicked()), this, SLOT(openMap()));
     }
+    void MapEditPanel::connectTool(RegionTool *tool)
+    {
+        QObject::connect(tool, &RegionTool::regiontoolInitialized,
+                         this, &MapEditPanel::onRegionToolInitialized);
+        QObject::connect(tool, &RegionTool::regiontooldeInitialized,
+                         this, &MapEditPanel::onRegiontoolDeInitialized);
+        QObject::connect(tool, &RegionTool::regionsChanged,
+                         this, &MapEditPanel::onregionsChanged);
+    }
+
+    void MapEditPanel::onRegionToolInitialized()
+    {
+        save_group_->setVisible(false);
+        region_group->setVisible(true);
+    }
+    void MapEditPanel::onRegiontoolDeInitialized()
+    {
+        save_group_->setVisible(true);
+        region_group->setVisible(false);
+    }
+
+    void MapEditPanel::onregionsChanged()
+    {
+        regions_ = g_region_tool->getRegions();
+        refreshRegionListUI();
+    }
 
     void MapEditPanel::openMap()
     {
@@ -113,7 +181,6 @@ namespace map_edit
             return;
         }
 
-        QString default_path = "/home";
         // 检查是否需要保存
         if (eraserTool && eraserTool->getCurrentMap().data.size() > 0 && !is_saved)
         {
@@ -132,34 +199,15 @@ namespace map_edit
                 eraserTool->reloadMap();
             }
         }
-        // // 如果目录不存在，尝试其他可能的路径
-        // QDir maps_dir(default_path);
-        // if (!maps_dir.exists())
-        // {
-        //     // 尝试相对于工作目录的路径
-        //     QStringList possible_paths = {
-        //         "ros_map_edit/maps",
-        //         "../src/ros_map_edit/maps",
-        //         "../../src/ros_map_edit/maps",
-        //         QDir::homePath() + "/ros_ws/cursor_ws/src/ros_map_edit/maps"};
-
-        //     for (const QString &path : possible_paths)
-        //     {
-        //         if (QDir(path).exists())
-        //         {
-        //             default_path = path;
-        //             break;
-        //         }
-        //     }
-        // }
 
         QString filename = QFileDialog::getOpenFileName(this,
                                                         "打开地图文件",
-                                                        default_path,
+                                                        last_opened_path_,
                                                         "YAML files (*.yaml)");
 
         if (!filename.isEmpty())
         {
+            last_opened_path_ = QFileInfo(filename).absolutePath();
             current_map_file_ = filename;
 
             // // 先清空所有消息，再加载并发布新地图
@@ -172,6 +220,265 @@ namespace map_edit
         }
     }
 
+    void MapEditPanel::openRegionYaml()
+    {
+        if (eraserTool == nullptr || eraserTool->getCurrentMap().data.size() == 0)
+        {
+            QMessageBox::warning(this, "警告", "请先发布地图");
+            return;
+        }
+
+        QString filename = QFileDialog::getOpenFileName(this,
+                                                        "打开区域文件",
+                                                        last_opened_path_,
+                                                        "YAML files (*.yaml)");
+
+        if (filename.isEmpty())
+            return;
+
+        last_opened_path_ = QFileInfo(filename).absolutePath();
+
+        try
+        {
+            YAML::Node root = YAML::LoadFile(filename.toStdString());
+            regions_.clear();
+
+            if (root["regions"] && root["regions"].IsSequence())
+            {
+                for (const auto &region_node : root["regions"])
+                {
+                    Region region;
+                    // Standard fields
+                    if (region_node["id"])
+                        region.id = region_node["id"].as<std::string>();
+                    if (region_node["frame_id"])
+                        region.frame_id = region_node["frame_id"].as<std::string>();
+                    if (region_node["type"])
+                        region.type = region_node["type"].as<int>();
+                    if (region_node["notes"])
+                        region.notes = region_node["notes"].as<std::string>();
+
+                    // Points
+                    if (region_node["points"] && region_node["points"].IsSequence())
+                    {
+                        for (const auto &point_node : region_node["points"])
+                        {
+                            geometry_msgs::msg::Point point;
+                            if (point_node["x"])
+                                point.x = point_node["x"].as<double>();
+                            if (point_node["y"])
+                                point.y = point_node["y"].as<double>();
+                            if (point_node["z"])
+                                point.z = point_node["z"].as<double>();
+                            region.points.push_back(point);
+                        }
+                    }
+
+                    // Attributes (Iterate all keys)
+                    for (YAML::const_iterator it = region_node.begin(); it != region_node.end(); ++it)
+                    {
+                        std::string key = it->first.as<std::string>();
+                        // Skip standard keys
+                        if (key == "id" || key == "frame_id" || key == "type" || key == "notes" || key == "points")
+                        {
+                            continue;
+                        }
+                        // Add to attributes (store as string)
+                        region.attributes[key] = it->second.as<std::string>();
+                    }
+
+                    if (region.points.size() >= 3)
+                    {
+                        regions_.push_back(region);
+                    }
+                }
+                refreshRegionListUI();
+                g_region_tool->setRegions(regions_);
+            }
+            else
+            {
+                QMessageBox::warning(this, "警告", "YAML 文件格式错误: 找不到 regions 列表");
+            }
+        }
+        catch (const YAML::Exception &e)
+        {
+            QMessageBox::critical(this, "错误", QString("解析 YAML 失败:\n") + e.what());
+        }
+    }
+
+    void MapEditPanel::clearRegions()
+    {
+        QMessageBox::StandardButton reply = QMessageBox::question(this, "清空地图区域", "你确定要清空区域吗", QMessageBox::Yes | QMessageBox::No);
+        if (reply == QMessageBox::Yes)
+        {
+            g_region_tool->clearRegions();
+            onregionsChanged();
+            return;
+        }
+        else if (reply == QMessageBox::No)
+        {
+            return;
+        }
+    }
+
+    void MapEditPanel::refreshRegionListUI()
+    {
+        // 清空旧内容
+        QLayoutItem *item;
+        while ((item = region_list_layout_->takeAt(0)) != nullptr)
+        {
+            delete item->widget();
+            delete item;
+        }
+
+        // 为每个 region 创建一个卡片
+        for (size_t i = 0; i < regions_.size(); ++i)
+        {
+            const auto &region = regions_[i];
+            QWidget *card = new QWidget();
+            QHBoxLayout *card_layout = new QHBoxLayout(card);
+            card_layout->setContentsMargins(8, 4, 8, 4);
+
+            QLabel *label = new QLabel(QString::fromStdString(region.id + " (" + region.notes + ")"));
+            label->setStyleSheet("font-weight: bold; color: #333;");
+
+            QPushButton *edit_btn = new QPushButton("编辑");
+            QPushButton *del_btn = new QPushButton("删除");
+
+            edit_btn->setFixedWidth(50);
+            del_btn->setFixedWidth(50);
+
+            card_layout->addWidget(label);
+            card_layout->addStretch();
+            card_layout->addWidget(edit_btn);
+            card_layout->addWidget(del_btn);
+
+            card->setStyleSheet(
+                "QWidget { background-color: #f8f8f8; border: 1px solid #ccc; border-radius: 6px; }"
+                "QPushButton { background-color: #e6e6e6; border-radius: 4px; padding: 2px; }"
+                "QPushButton:hover { background-color: #d0d0d0; }");
+
+            region_list_layout_->addWidget(card);
+
+            // 绑定信号
+            connect(edit_btn, &QPushButton::clicked, this, [this, i]()
+                    {
+            Region &r = regions_[i];
+
+            QDialog dialog(this);
+            dialog.setWindowTitle("编辑区域信息");
+            dialog.resize(500, 600);
+            QVBoxLayout *layout = new QVBoxLayout(&dialog);
+
+            QFormLayout *form = new QFormLayout();
+
+            QLineEdit *id_edit = new QLineEdit(QString::fromStdString(r.id));
+            QLineEdit *frame_edit = new QLineEdit(QString::fromStdString(r.frame_id));
+            QSpinBox *type_spin = new QSpinBox();
+            type_spin->setRange(0, 100);
+            type_spin->setValue(r.type);
+            QTextEdit *notes_edit = new QTextEdit(QString::fromStdString(r.notes));
+            notes_edit->setMaximumHeight(60);
+
+            form->addRow("区域ID：", id_edit);
+            form->addRow("Frame ID：", frame_edit);
+            form->addRow("类型（Type）：", type_spin);
+            form->addRow("备注（Notes）：", notes_edit);
+            layout->addLayout(form);
+
+            // Attributes Table
+            QGroupBox *attr_group = new QGroupBox("自定义属性");
+            QVBoxLayout *attr_layout = new QVBoxLayout(attr_group);
+
+            QTableWidget *attr_table = new QTableWidget();
+            attr_table->setColumnCount(2);
+            attr_table->setHorizontalHeaderLabels({"Key", "Value"});
+            attr_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+            attr_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+
+            // Load attributes
+            attr_table->setRowCount(r.attributes.size());
+            int row = 0;
+            for (const auto &kv : r.attributes)
+            {
+                attr_table->setItem(row, 0, new QTableWidgetItem(QString::fromStdString(kv.first)));
+                attr_table->setItem(row, 1, new QTableWidgetItem(QString::fromStdString(kv.second)));
+                row++;
+            }
+
+            attr_layout->addWidget(attr_table);
+
+            // Add/Remove buttons
+            QHBoxLayout *attr_btn_layout = new QHBoxLayout();
+            QPushButton *add_attr_btn = new QPushButton("添加属性");
+            QPushButton *del_attr_btn = new QPushButton("删除属性");
+            attr_btn_layout->addWidget(add_attr_btn);
+            attr_btn_layout->addWidget(del_attr_btn);
+            attr_layout->addLayout(attr_btn_layout);
+
+            layout->addWidget(attr_group);
+
+            // Button connections
+            connect(add_attr_btn, &QPushButton::clicked, [attr_table]()
+                    {
+                        int row = attr_table->rowCount();
+                        attr_table->insertRow(row);
+                        attr_table->setItem(row, 0, new QTableWidgetItem("key"));
+                        attr_table->setItem(row, 1, new QTableWidgetItem("value"));
+                    });
+
+            connect(del_attr_btn, &QPushButton::clicked, [attr_table]()
+                    {
+                        int row = attr_table->currentRow();
+                        if (row >= 0)
+                            attr_table->removeRow(row);
+                    });
+
+            QHBoxLayout *btn_layout = new QHBoxLayout();
+            QPushButton *ok_btn = new QPushButton("确定");
+            QPushButton *cancel_btn = new QPushButton("取消");
+            btn_layout->addStretch();
+            btn_layout->addWidget(ok_btn);
+            btn_layout->addWidget(cancel_btn);
+            layout->addLayout(btn_layout);
+
+            connect(ok_btn, &QPushButton::clicked, &dialog, &QDialog::accept);
+            connect(cancel_btn, &QPushButton::clicked, &dialog, &QDialog::reject);
+
+            if (dialog.exec() == QDialog::Accepted)
+            {
+                r.id = id_edit->text().toStdString();
+                r.frame_id = frame_edit->text().toStdString();
+                r.type = type_spin->value();
+                r.notes = notes_edit->toPlainText().toStdString();
+
+                // Save attributes
+                r.attributes.clear();
+                for (int j = 0; j < attr_table->rowCount(); ++j)
+                {
+                    QString key = attr_table->item(j, 0)->text();
+                    QString val = attr_table->item(j, 1)->text();
+                    if (!key.isEmpty())
+                    {
+                        r.attributes[key.toStdString()] = val.toStdString();
+                    }
+                }
+
+                g_region_tool->setRegions(regions_);
+                refreshRegionListUI();
+            } });
+
+            connect(del_btn, &QPushButton::clicked, this, [this, i]()
+                    {
+            regions_.erase(regions_.begin() + i);
+            g_region_tool->setRegions(regions_);
+            refreshRegionListUI(); });
+        }
+
+        region_list_layout_->addStretch();
+        region_container_->adjustSize();
+        region_scroll_area_->updateGeometry();
+    }
     void MapEditPanel::loadAndPublishMap(const std::string &yaml_filename)
     {
         try
@@ -330,11 +637,12 @@ namespace map_edit
         QString fileName = QFileDialog::getSaveFileName(
             this,
             "保存文件",
-            "",
+            last_opened_path_,
             "YAML files (*.yaml)");
         // 如果没有扩展名，则手动添加默认扩展名
         if (!fileName.isEmpty())
         {
+            last_opened_path_ = QFileInfo(fileName).absolutePath();
             if (QFileInfo(fileName).suffix().isEmpty())
             {
                 fileName += ".yaml";
@@ -365,6 +673,92 @@ namespace map_edit
                 status_label_->setText("保存失败");
                 QMessageBox::critical(this, "保存错误", error_msg);
             }
+        }
+    }
+
+    void MapEditPanel::saveRegionYaml()
+    {
+        if (eraserTool == nullptr || eraserTool->getCurrentMap().data.size() == 0)
+        {
+            QMessageBox::warning(this, "警告", "请先发布地图");
+            return;
+        }
+        regions_ = g_region_tool->getRegions();
+        if (regions_.empty())
+        {
+            QMessageBox::warning(this, "警告", "无区域数据");
+            return;
+        }
+
+        QString fileName = QFileDialog::getSaveFileName(
+            this,
+            "保存文件",
+            last_opened_path_,
+            "YAML files (*.yaml)");
+
+        if (fileName.isEmpty())
+            return;
+
+        last_opened_path_ = QFileInfo(fileName).absolutePath();
+
+        if (QFileInfo(fileName).suffix().isEmpty())
+        {
+            fileName += ".yaml";
+        }
+
+        try
+        {
+            YAML::Emitter out;
+            out << YAML::BeginMap;
+            out << YAML::Key << "regions" << YAML::Value << YAML::BeginSeq;
+
+            for (const auto &region : regions_)
+            {
+                if (region.points.size() >= 3)
+                {
+                    out << YAML::BeginMap;
+                    out << YAML::Key << "id" << YAML::Value << region.id;
+                    out << YAML::Key << "frame_id" << YAML::Value << region.frame_id;
+                    out << YAML::Key << "type" << YAML::Value << region.type;
+                    out << YAML::Key << "notes" << YAML::Value << region.notes;
+
+                    out << YAML::Key << "points" << YAML::Value << YAML::BeginSeq;
+                    for (const auto &point : region.points)
+                    {
+                        out << YAML::BeginMap;
+                        out << YAML::Key << "x" << YAML::Value << point.x;
+                        out << YAML::Key << "y" << YAML::Value << point.y;
+                        out << YAML::Key << "z" << YAML::Value << point.z;
+                        out << YAML::EndMap;
+                    }
+                    out << YAML::EndSeq;
+
+                    // Attributes (Flat structure)
+                    for (const auto &kv : region.attributes)
+                    {
+                        out << YAML::Key << kv.first << YAML::Value << kv.second;
+                    }
+
+                    out << YAML::EndMap;
+                }
+            }
+            out << YAML::EndSeq;
+            out << YAML::EndMap;
+
+            std::ofstream file(fileName.toStdString());
+            if (file.is_open())
+            {
+                file << out.c_str();
+                QMessageBox::information(this, "消息", "Saved " + QString::number(regions_.size()) + " regions");
+            }
+            else
+            {
+                QMessageBox::critical(this, "错误", "Failed to save regions file");
+            }
+        }
+        catch (const YAML::Exception &e)
+        {
+            QMessageBox::critical(this, "错误", QString("保存 YAML 失败:\n") + e.what());
         }
     }
 
@@ -465,8 +859,8 @@ namespace map_edit
         int panel_height = event->size().height();
 
         int base_size = std::max(panel_width, panel_height);
-        int font_size = std::clamp(base_size / 80, 5, 18);
-        int padding_px = std::clamp(base_size / 100, 2, 10);
+        int font_size = std::clamp(base_size / 60, 5, 18);
+        int padding_px = std::clamp(base_size / 90, 5, 18);
 
         QFont font;
         font.setPointSize(font_size);
@@ -500,11 +894,29 @@ namespace map_edit
                                    .arg(padding_px);
         save_all_btn_->setStyleSheet(button_style);
 
+        QString save_json_button_style = QString(
+                                             "QPushButton { background-color:rgb(173, 175, 76); color: white; font-size: %1pt; padding: %2px; }")
+                                             .arg(font_size)
+                                             .arg(padding_px);
+        save_json_btn_->setStyleSheet(save_json_button_style);
+
         QString open_btn_style = QString(
                                      "QPushButton { background-color: #2196F3; color: white; font-size: %1pt; padding: %2px; }")
                                      .arg(font_size)
                                      .arg(padding_px);
         open_local_btn_->setStyleSheet(open_btn_style);
+
+        QString open_region_button_style = QString(
+                                               "QPushButton { background-color:rgb(120, 175, 76); color: white; font-size: %1pt; padding: %2px; }")
+                                               .arg(font_size)
+                                               .arg(padding_px);
+        open_region_json_btn_->setStyleSheet(open_region_button_style);
+
+        QString clear_region_btn_style = QString(
+                                             "QPushButton { background-color:rgb(206, 83, 53); color: white; font-size: %1pt; padding: %2px; }")
+                                             .arg(font_size)
+                                             .arg(padding_px);
+        clear_region_btn_->setStyleSheet(clear_region_btn_style);
 
         QString local_info_style = QString(
                                        "QLabel { color: #666; font-size: %1pt; padding: %2px; }")
