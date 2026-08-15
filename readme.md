@@ -53,7 +53,7 @@ cd ..
 
     ```zsh
     . install/setup.bash
-    ros2 launch map_edit mapedit.launch.py 
+    ros2 launch map_edit map_edit.launch.py 
     ```
 
 ## 使用说明
