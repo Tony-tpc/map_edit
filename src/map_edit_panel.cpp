@@ -1,5 +1,14 @@
 #include "map_edit/map_edit_panel.h"
 #include <pluginlib/class_list_macros.hpp>
+#include <QSlider>
+#include <cmath>
+
+namespace
+{
+    constexpr float kZSliderStepMeters = 0.05f;
+    constexpr float kZSliderUnitsPerMeter = 1.0f / kZSliderStepMeters;
+    constexpr int kZSliderMarginSteps = 10; // 在点云实际范围两端各保留 0.5 m
+}
 
 extern map_edit::RegionTool *g_region_tool;
 namespace map_edit
@@ -58,6 +67,9 @@ namespace map_edit
 
         save_group_->setLayout(save_layout);
 
+        // 点云辅助组 (PCD)
+        setupPcdUI();
+
         // 状态显示
         status_label_ = new QLabel("就绪 - 请先打开一个地图文件");
 
@@ -83,6 +95,7 @@ namespace map_edit
 
         // 组装主布局
         main_layout_->addWidget(save_group_, 1);         // 比例 1
+        main_layout_->addWidget(pcd_group_, 1);          // 点云辅助（按内容高度，不拉伸）
         main_layout_->addWidget(new QLabel("状态:"), 0); // 固定高度，内容短
         main_layout_->addWidget(status_label_, 1);
         main_layout_->addWidget(info_label_, 1);
@@ -92,6 +105,178 @@ namespace map_edit
         // 连接信号
         connect(save_all_btn_, SIGNAL(clicked()), this, SLOT(saveAllFiles()));
         connect(save_yaml_btn_, SIGNAL(clicked()), this, SLOT(saveRegionYaml()));
+    }
+
+    void MapEditPanel::setupPcdUI()
+    {
+        pcd_group_ = new QGroupBox("点云辅助 (PCD)");
+        pcd_group_->setToolTip("加载 PCD 点云并过滤 Z 高度范围，点云按高度 Jet 渐变着色(蓝→红)发布到 /map_edit_pcd，在 RViz 中显示为 Map Edit PCD");
+        
+        QVBoxLayout *pcd_layout = new QVBoxLayout();
+
+        // 加载按钮独占一行，样式与上方“选择本地地图文件”一致（全宽）
+        load_pcd_btn_ = new QPushButton("加载 PCD 文件");
+        load_pcd_btn_->setToolTip("选择并加载 PCD 点云文件");
+        pcd_layout->addWidget(load_pcd_btn_);
+
+        // 点云信息（与上方 local_info 一致的字体间距）
+        pcd_info_label_ = new QLabel("未加载点云");
+        pcd_info_label_->setObjectName("pcdInfoLabel");
+        pcd_info_label_->setWordWrap(false);
+        pcd_info_label_->setMinimumWidth(0);
+        pcd_layout->addWidget(pcd_info_label_);
+
+        // Z 最小滑块
+        QHBoxLayout *z_min_row = new QHBoxLayout();
+        z_min_row->setSpacing(4);
+        z_min_caption_ = new QLabel("Z 最小:");
+        z_min_caption_->setFixedWidth(42);
+        z_min_row->addWidget(z_min_caption_, 0);
+        z_min_slider_ = new QSlider(Qt::Horizontal);
+        z_min_slider_->setRange(-2000, 2000); // 值 = 米 * 20 (0.05m 步进)
+        z_min_slider_->setSingleStep(1);
+        z_min_slider_->setPageStep(2);
+        z_min_slider_->setToolTip("每格调整 0.05 m");
+        z_min_slider_->setEnabled(false);
+        z_min_slider_->setFixedHeight(24);
+        z_min_row->addWidget(z_min_slider_, 1);
+        z_min_value_label_ = new QLabel("--");
+        z_min_value_label_->setFixedWidth(58);
+        z_min_value_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        z_min_row->addWidget(z_min_value_label_, 0);
+        pcd_layout->addLayout(z_min_row);
+
+        // Z 最大滑块
+        QHBoxLayout *z_max_row = new QHBoxLayout();
+        z_max_row->setSpacing(4);
+        z_max_caption_ = new QLabel("Z 最大:");
+        z_max_caption_->setFixedWidth(42);
+        z_max_row->addWidget(z_max_caption_, 0);
+        z_max_slider_ = new QSlider(Qt::Horizontal);
+        z_max_slider_->setRange(-2000, 2000);
+        z_max_slider_->setSingleStep(1);
+        z_max_slider_->setPageStep(2);
+        z_max_slider_->setToolTip("每格调整 0.05 m");
+        z_max_slider_->setEnabled(false);
+        z_max_slider_->setFixedHeight(24);
+        z_max_row->addWidget(z_max_slider_, 1);
+        z_max_value_label_ = new QLabel("--");
+        z_max_value_label_->setFixedWidth(58);
+        z_max_value_label_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+        z_max_row->addWidget(z_max_value_label_, 0);
+        pcd_layout->addLayout(z_max_row);
+
+        pcd_group_->setLayout(pcd_layout);
+
+        // 滑块样式美化（主题色与按钮一致，尺寸加大便于拖动）
+        QString slider_style =
+            "QSlider::groove:horizontal { height: 6px; background: #dfe3e8; border-radius: 4px; }"
+            "QSlider::sub-page:horizontal { background: #2196F3; border-radius: 2px; }"
+            "QSlider::add-page:horizontal { background: #dfe3e8; border-radius: 2px; }"
+            "QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0; "
+            "border-radius: 6px; background: #2196F3; border: 1px solid #ffffff; }"
+            "QSlider::handle:horizontal:hover { background: #1976D2; }"
+            "QSlider::groove:horizontal:disabled { background: #eceff2; }"
+            "QSlider::handle:horizontal:disabled { background: #b8c0c8; }";
+        z_min_slider_->setStyleSheet(slider_style);
+        z_max_slider_->setStyleSheet(slider_style);
+
+        // 连接信号
+        connect(load_pcd_btn_, SIGNAL(clicked()), this, SLOT(loadPcdFile()));
+        connect(z_min_slider_, SIGNAL(valueChanged(int)), this, SLOT(onZMinChanged(int)));
+        connect(z_max_slider_, SIGNAL(valueChanged(int)), this, SLOT(onZMaxChanged(int)));
+    }
+
+    void MapEditPanel::loadPcdFile()
+    {
+        QString filename = QFileDialog::getOpenFileName(this,
+                                                        "打开 PCD 点云文件",
+                                                        last_opened_path_,
+                                                        "PCD files (*.pcd);;All files (*)");
+        if (filename.isEmpty())
+            return;
+
+        last_opened_path_ = QFileInfo(filename).absolutePath();
+
+        if (!pcd_loader_)
+        {
+            pcd_loader_ = std::make_unique<PcdLoader>("map");
+        }
+
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        bool ok = pcd_loader_->load(filename.toStdString());
+        QApplication::restoreOverrideCursor();
+
+        if (!ok)
+        {
+            QMessageBox::critical(this, "错误", "加载 PCD 文件失败:\n" + filename);
+            return;
+        }
+
+        // 每个整数刻度对应 0.05 m，并在点云实际范围两端各扩展 0.5 m。
+        const int cloud_min_step = static_cast<int>(std::floor(pcd_loader_->getCloudZMin() * kZSliderUnitsPerMeter));
+        const int cloud_max_step = static_cast<int>(std::ceil(pcd_loader_->getCloudZMax() * kZSliderUnitsPerMeter));
+        const int lo = cloud_min_step - kZSliderMarginSteps;
+        const int hi = cloud_max_step + kZSliderMarginSteps;
+        z_min_slider_->setRange(lo, hi);
+        z_max_slider_->setRange(lo, hi);
+        z_min_slider_->setValue(cloud_min_step);
+        z_max_slider_->setValue(cloud_max_step);
+        z_min_slider_->setEnabled(true);
+        z_max_slider_->setEnabled(true);
+        z_min_value_label_->setText(QString::number(cloud_min_step * kZSliderStepMeters, 'f', 2) + " m");
+        z_max_value_label_->setText(QString::number(cloud_max_step * kZSliderStepMeters, 'f', 2) + " m");
+
+        updatePcdInfoLabel();
+        status_label_->setText(QString("PCD 加载成功: %1 (%2 点)").arg(QFileInfo(filename).fileName()).arg(pcd_loader_->pointCount()));
+    }
+
+    void MapEditPanel::onZMinChanged(int value)
+    {
+        if (!pcd_loader_ || !pcd_loader_->isLoaded())
+            return;
+        // 互锁：Z 最小不能超过 Z 最大
+        if (value >= z_max_slider_->value())
+        {
+            z_max_slider_->setValue(value);
+        }
+        const float z = value * kZSliderStepMeters;
+        pcd_loader_->setZMin(z);
+        z_min_value_label_->setText(QString::number(z, 'f', 2) + " m");
+        updatePcdInfoLabel();
+    }
+
+    void MapEditPanel::onZMaxChanged(int value)
+    {
+        if (!pcd_loader_ || !pcd_loader_->isLoaded())
+            return;
+        // 互锁：Z 最大不能小于 Z 最小
+        if (value <= z_min_slider_->value())
+        {
+            z_min_slider_->setValue(value);
+        }
+        const float z = value * kZSliderStepMeters;
+        pcd_loader_->setZMax(z);
+        z_max_value_label_->setText(QString::number(z, 'f', 2) + " m");
+        updatePcdInfoLabel();
+    }
+
+    void MapEditPanel::updatePcdInfoLabel()
+    {
+        if (!pcd_loader_ || !pcd_loader_->isLoaded())
+        {
+            pcd_info_label_->setText("未加载点云");
+            return;
+        }
+        const QString info =
+            QString("%1 · 总 %2 点 · 显示 %3 点 · Z [%4, %5] m")
+                .arg(QFileInfo(QString::fromStdString(pcd_loader_->filePath())).fileName())
+                .arg(pcd_loader_->pointCount())
+                .arg(pcd_loader_->filteredPointCount())
+                .arg(pcd_loader_->getCloudZMin(), 0, 'f', 2)
+                .arg(pcd_loader_->getCloudZMax(), 0, 'f', 2);
+        pcd_info_label_->setText(info);
+        pcd_info_label_->setToolTip(info);
     }
 
     void MapEditPanel::setupRegionUI()
@@ -870,6 +1055,12 @@ namespace map_edit
         info_label_->setFont(font);
         save_all_btn_->setFont(font);
         open_local_btn_->setFont(font);
+        load_pcd_btn_->setFont(font);
+        pcd_info_label_->setFont(font);
+        z_min_caption_->setFont(font);
+        z_max_caption_->setFont(font);
+        z_min_value_label_->setFont(font);
+        z_max_value_label_->setFont(font);
 
         QString label_style = QString(
                                   "QLabel { color: #333; font-weight: bold; padding: %1px; }")
@@ -904,7 +1095,14 @@ namespace map_edit
                                      "QPushButton { background-color: #2196F3; color: white; font-size: %1pt; padding: %2px; }")
                                      .arg(font_size)
                                      .arg(padding_px);
+
+        QString open_pcd_style = QString(
+                                "QPushButton { background-color: #6C63C7; color: white; font-size: %1pt; padding: %2px; }")
+                                .arg(font_size)
+                                .arg(padding_px);
+
         open_local_btn_->setStyleSheet(open_btn_style);
+        load_pcd_btn_->setStyleSheet(open_pcd_style);
 
         QString open_region_button_style = QString(
                                                "QPushButton { background-color:rgb(120, 175, 76); color: white; font-size: %1pt; padding: %2px; }")
@@ -923,6 +1121,7 @@ namespace map_edit
                                        .arg(font_size - 2)
                                        .arg(padding_px);
         local_info->setStyleSheet(local_info_style);
+        pcd_info_label_->setStyleSheet(local_info_style);
     }
 
     bool MapEditPanel::isTopicExist(const std::string &topic_name)

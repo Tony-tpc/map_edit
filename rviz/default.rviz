@@ -11,6 +11,7 @@ Panels:
         - /Map1
         - /Map1/Update Topic1
         - /PointCloud21
+        - /Map Edit PCD1
         - /Marker1
         - /MarkerArray1
       Splitter Ratio: 0.5833333134651184
@@ -135,6 +136,39 @@ Visualization Manager:
         History Policy: Keep Last
         Reliability Policy: Best Effort
         Value: /segmentation/obstacle
+      Use Fixed Frame: true
+      Use rainbow: true
+      Value: true
+    - Autocompute Intensity Bounds: true
+      Autocompute Value Bounds:
+        Max Value: 10
+        Min Value: -10
+        Value: true
+      Axis: Z
+      Channel Name: intensity
+      Class: rviz_default_plugins/PointCloud2
+      Color: 237; 51; 59
+      Color Transformer: RGB8
+      Decay Time: 0
+      Enabled: true
+      Invert Rainbow: false
+      Max Color: 255; 255; 255
+      Max Intensity: 4096
+      Min Color: 0; 0; 0
+      Min Intensity: 0
+      Name: Map Edit PCD
+      Position Transformer: XYZ
+      Selectable: true
+      Size (Pixels): 3
+      Size (m): 0.05000000074505806
+      Style: Points
+      Topic:
+        Depth: 5
+        Durability Policy: Transient Local
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /map_edit_pcd
       Use Fixed Frame: true
       Use rainbow: true
       Value: true

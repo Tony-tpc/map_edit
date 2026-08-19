@@ -19,6 +19,9 @@ find_package(tf2_geometry_msgs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(yaml-cpp REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(pcl_conversions REQUIRED)
+find_package(PCL REQUIRED COMPONENTS common io)
 
 # MOC 文件（用于 QObject 继承类）
 qt5_wrap_cpp(MOC_FILES
@@ -35,11 +38,13 @@ set(SRC_FILES
   src/tool_manager.cpp
   src/map_eraser_tool.cpp
   src/region_tool.cpp
+  src/pcd_loader.cpp
 )
 
 # 头文件包含路径
 include_directories(
   ${PROJECT_SOURCE_DIR}/include
+  ${PCL_INCLUDE_DIRS}
 )
 
 # 构建共享库（rviz 插件要求）
@@ -55,6 +60,7 @@ target_link_libraries(${PROJECT_NAME}
   Qt5::Qml
   Qt5::QuickWidgets
   yaml-cpp
+  ${PCL_LIBRARIES}
 )
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -68,6 +74,8 @@ ament_target_dependencies(${PROJECT_NAME}
   tf2
   visualization_msgs
   geometry_msgs
+  sensor_msgs
+  pcl_conversions
 )
 
 # 安装共享库

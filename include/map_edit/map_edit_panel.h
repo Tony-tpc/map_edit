@@ -5,6 +5,8 @@
 #include <QPainterPath>
 #include <QMouseEvent>
 #include <QVBoxLayout>
+#include <memory>
+#include <string>
 #include <rviz_common/panel.hpp>
 #include <geometry_msgs/msg/twist.hpp>
 #include <rclcpp/rclcpp.hpp>
@@ -37,6 +39,7 @@
 #include <QFormLayout>
 #include <QSpinBox>
 #include <QTextEdit>
+#include <QSlider>
 #include <yaml-cpp/yaml.h>
 #include <QFileInfo>
 #include <thread>
@@ -47,6 +50,7 @@
 #include "tool_manager.h"
 #include "map_eraser_tool.h"
 #include "region_tool.h"
+#include "pcd_loader.h"
 namespace map_edit
 {
 
@@ -70,12 +74,18 @@ namespace map_edit
         void clearRegions();
         void saveAllFiles();
         void saveRegionYaml();
+        // PCD 点云辅助
+        void loadPcdFile();
+        void onZMinChanged(int value);
+        void onZMaxChanged(int value);
 
     private:
         void setupUI();
         void setupLocalTab();
         void setupRegionUI();
+        void setupPcdUI();
         void refreshRegionListUI();
+        void updatePcdInfoLabel();
         bool isTopicExist(const std::string &topic_name);
         void loadAndPublishMap(const std::string &filename);
         void publishMap(const nav_msgs::msg::OccupancyGrid &map);
@@ -109,6 +119,18 @@ namespace map_edit
         QScrollArea *region_scroll_area_;
         QWidget *region_container_;
         QVBoxLayout *region_list_layout_;
+
+        // 点云辅助组 (PCD)
+        QGroupBox *pcd_group_;
+        QPushButton *load_pcd_btn_;
+        QLabel *pcd_info_label_;
+        QSlider *z_min_slider_;
+        QSlider *z_max_slider_;
+        QLabel *z_min_caption_;
+        QLabel *z_max_caption_;
+        QLabel *z_min_value_label_;
+        QLabel *z_max_value_label_;
+        std::unique_ptr<PcdLoader> pcd_loader_;
 
         // 状态显示
         QLabel *status_label_;
