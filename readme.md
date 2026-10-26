@@ -43,7 +43,7 @@ cd ..
 1. 安装依赖
 
     ```zsh
-    rosdepc install -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y
+    rosdep install -r --from-paths src --ignore-src --rosdistro $ROS_DISTRO -y
     ```
 2. 编译
 
