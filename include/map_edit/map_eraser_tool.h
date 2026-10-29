@@ -22,9 +22,7 @@
 #include <rviz_rendering/render_window.hpp>
 #include <rviz_rendering/geometry.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
-#include <cv_bridge/cv_bridge.h>
 #include <rviz_common/render_panel.hpp>
-#include <opencv2/opencv.hpp>
 #include <OgrePlane.h>
 #include <OgreVector3.h>
 #include <cmath>
